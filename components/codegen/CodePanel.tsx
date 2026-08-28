@@ -30,7 +30,7 @@ export function CodePanel({ snippet }: { snippet: string }) {
         </pre>
         <p className="mt-1 text-[11px] text-muted-foreground">
           동일 파이프라인은 항상 동일한 코드를 생성합니다. 전체 스크립트(.py)·VBA(.bas)는 상단
-          "코드 내보내기"에서 받으세요.
+          내보내기 버튼(.py·.bas)에서 받으세요.
         </p>
       </div>
     </details>

@@ -9,6 +9,7 @@ import { generateVba } from "@/lib/codegen/vba";
 import { MODULE_HELP } from "@/content/module-help";
 import { useWorkbook, type ProductPreset } from "@/lib/store/workbook";
 import { CodePanel } from "@/components/codegen/CodePanel";
+import { CloudControls } from "./CloudControls";
 import { StepCard } from "./StepCard";
 import { NextStep } from "./NextStep";
 import { ProgressRail } from "./ProgressRail";
@@ -155,6 +156,7 @@ export function Workspace() {
         </Link>
         <span className="text-sm text-muted-foreground">게스트 워크북 · 보험료 산출 파이프라인</span>
         <span className="ml-auto flex items-center gap-1.5">
+          <CloudControls />
           <button
             type="button"
             onClick={() => setLectureMode((v) => !v)}

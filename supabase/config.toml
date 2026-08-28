@@ -1,0 +1,13 @@
+# Supabase 호스티드 설정 (supabase config push 로 반영)
+project_id = "premiaflow"
+
+[auth]
+site_url = "https://premiaflow.vercel.app"
+additional_redirect_urls = [
+  "https://premiaflow.vercel.app/**",
+  "http://localhost:3000/**",
+]
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false
