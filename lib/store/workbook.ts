@@ -7,6 +7,7 @@ import {
   type ComputedAsset,
   type SheetSeed,
 } from "@/lib/engine/pipeline";
+import { GUEST_WORKBOOK_ID, localAdapter, toWorkbookFile } from "@/lib/storage/localAdapter";
 
 /**
  * 게스트 워크북 스토어 (P3: 공용탭 + 다중 일반 탭, 인메모리).
@@ -99,6 +100,8 @@ function defaultParams(
       };
     case "M10":
       return { expression: "" };
+    case "M11":
+      return { seriesAssetIds: null };
     case "M09":
       return {
         method: "A",
@@ -191,6 +194,11 @@ interface WorkbookStore {
   sheets: SheetState[];
   activeSheetId: string;
   expandedId: string | null;
+  /** localStorage 복원 완료 여부 — 복원 전에는 자동 저장하지 않는다 */
+  hydrated: boolean;
+
+  /** localStorage에서 게스트 워크북 복원 (마운트 시 1회) */
+  hydrate: () => Promise<void>;
 
   // ── 시트 조작 ──
   setActiveSheet: (id: string) => void;
@@ -239,6 +247,21 @@ export const useWorkbook = create<WorkbookStore>((set, get) => {
     sheets: first,
     activeSheetId: first[1].id,
     expandedId: null,
+    hydrated: false,
+
+    hydrate: async () => {
+      if (get().hydrated) return;
+      try {
+        const wb = await localAdapter.loadWorkbook(GUEST_WORKBOOK_ID);
+        const sheets = wb?.sheets as SheetState[] | undefined;
+        const normal = sheets?.find((sh) => sh.sheetType === "normal");
+        if (sheets && sheets.some((sh) => sh.sheetType === "shared") && normal) {
+          set({ sheets, activeSheetId: normal.id, expandedId: null });
+        }
+      } finally {
+        set({ hydrated: true });
+      }
+    },
 
     setActiveSheet: (id) => set({ activeSheetId: id, expandedId: null }),
 
@@ -349,6 +372,21 @@ export const useWorkbook = create<WorkbookStore>((set, get) => {
     reset: () => {
       const sheets = initialSheets();
       set({ sheets, activeSheetId: sheets[1].id, expandedId: null });
+      if (typeof localStorage !== "undefined") {
+        localAdapter.deleteWorkbook(GUEST_WORKBOOK_ID).catch(() => {});
+      }
     },
   };
 });
+
+// ── 자동 저장: 시트 변경 시 400ms 디바운스로 localStorage에 기록 ──
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
+  useWorkbook.subscribe((s, prev) => {
+    if (!s.hydrated || s.sheets === prev.sheets) return;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      localAdapter.saveWorkbook(toWorkbookFile(s.sheets)).catch(() => {});
+    }, 400);
+  });
+}

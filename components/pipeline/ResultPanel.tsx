@@ -92,8 +92,8 @@ export function ResultPanel({
 
       <div className="rounded-xl border border-border bg-card p-4 text-xs text-muted-foreground">
         <p>
-          게스트 모드 — 새로고침 시 초기화됩니다. 저장·불러오기는 P5(클라우드 연동)에서
-          제공됩니다.
+          게스트 모드 — 이 브라우저에 <strong>자동 저장</strong>됩니다(새로고침해도 유지).
+          클라우드 저장·기기 간 동기화는 로그인(클라우드 연동) 후 제공됩니다.
         </p>
         <button
           type="button"

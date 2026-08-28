@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ComponentType } from "react";
+import { useEffect, useMemo, useState, type ComponentType } from "react";
 import Link from "next/link";
 import type { AssetNameOverride, ModuleTypeId } from "@/types/modules";
 import { computeWorkbook, MODULE_CATALOG, REF_FIELD_LABEL, repairRefs } from "@/lib/engine/pipeline";
@@ -26,6 +26,7 @@ import { M07Pv } from "@/components/modules/m07-pv";
 import { M08NetPremium } from "@/components/modules/m08-net-premium";
 import { M09Expense } from "@/components/modules/m09-expense";
 import { M10Formula } from "@/components/modules/m10-formula";
+import { M11Output } from "@/components/modules/m11-output";
 
 const FORMS: Partial<Record<ModuleTypeId, ComponentType<ModuleFormProps>>> = {
   M01: M01Product,
@@ -38,6 +39,7 @@ const FORMS: Partial<Record<ModuleTypeId, ComponentType<ModuleFormProps>>> = {
   M08: M08NetPremium,
   M09: M09Expense,
   M10: M10Formula,
+  M11: M11Output,
 };
 
 function download(filename: string, text: string, mime: string) {
@@ -114,6 +116,36 @@ export function Workspace() {
       document.getElementById(`step-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 60);
   };
+
+  // localStorage 복원 (마운트 1회) — 이후 변경은 자동 저장
+  const hydrate = useWorkbook((s) => s.hydrate);
+  useEffect(() => {
+    hydrate();
+  }, [hydrate]);
+
+  // 키보드 단계 이동 (P5 접근성): Alt + ↑/↓
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || (e.key !== "ArrowDown" && e.key !== "ArrowUp")) return;
+      const s = useWorkbook.getState();
+      const sheet = s.sheets.find((sh) => sh.id === s.activeSheetId);
+      if (!sheet || sheet.pipeline.length === 0) return;
+      e.preventDefault();
+      const idx = sheet.pipeline.findIndex((m) => m.id === s.expandedId);
+      const next =
+        e.key === "ArrowDown"
+          ? Math.min(idx + 1, sheet.pipeline.length - 1)
+          : Math.max(idx - 1, 0);
+      const target = sheet.pipeline[next]?.id;
+      if (!target) return;
+      s.setExpanded(target);
+      setTimeout(() => {
+        document.getElementById(`step-${target}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 60);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
     <div className="min-h-screen">

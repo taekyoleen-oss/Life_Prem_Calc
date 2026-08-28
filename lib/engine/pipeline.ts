@@ -110,7 +110,7 @@ export const MODULE_CATALOG: Record<
   M08: { label: "순보험료", repeatable: false, available: true, desc: "NSP·연납 P" },
   M09: { label: "사업비·영업보험료", repeatable: false, available: true, desc: "방식 A(3이원)·B(부가율)" },
   M10: { label: "사용자 수식", repeatable: true, available: true, desc: "자산 코드로 자유 수식" },
-  M11: { label: "결과 요약", repeatable: false, available: false, desc: "P4에서 제공" },
+  M11: { label: "결과 요약", repeatable: false, available: true, desc: "통합 계산표·내보내기" },
 };
 
 /** "＋ 다음 단계" 추천 (§3.1): 마지막 모듈 유형 → 자연스러운 다음 모듈 */
@@ -123,8 +123,9 @@ const NEXT_RECOMMEND: Partial<Record<ModuleTypeId, ModuleTypeId[]>> = {
   M06: ["M07"],
   M07: ["M07", "M08"],
   M08: ["M09"],
-  M09: ["M10"],
-  M10: ["M10"],
+  M09: ["M10", "M11"],
+  M10: ["M10", "M11"],
+  M11: [],
 };
 
 export function recommendNext(pipeline: ModuleInstance[]): ModuleTypeId[] {
@@ -621,6 +622,13 @@ export function computeSheet(pipeline: ModuleInstance[], seed?: SheetSeed): Shee
             p.expression.length > 36 ? `${p.expression.slice(0, 36)}…` : p.expression,
             isSeries ? `계열 (${(value as number[]).length}개)` : `= ${fmt(value as number, 4)}`,
           );
+          break;
+        }
+        case "M11": {
+          // 통합 계산표(§3.6): 자산을 만들지 않는 조회 모듈 — 표 구성은 카드에서
+          const seriesCount = ctx.order.filter((a) => a.def.kind === "series").length;
+          const scalarCount = ctx.order.filter((a) => a.def.kind === "scalar").length;
+          summary.push(`계열 ${seriesCount}개 · 스칼라 ${scalarCount}개`);
           break;
         }
         default:

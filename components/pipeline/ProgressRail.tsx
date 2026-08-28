@@ -165,6 +165,9 @@ export function ProgressRail({
           ＋ 단계 추가
         </button>
       )}
+      <p className="mt-3 text-[10px] text-muted-foreground">
+        Alt + ↑/↓ : 단계 이동 · 더블클릭: 탭 이름 변경
+      </p>
     </nav>
   );
 }
