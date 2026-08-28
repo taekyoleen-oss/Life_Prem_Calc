@@ -4,6 +4,10 @@ import type { ReactNode } from "react";
 
 /** 모듈 폼 공통 컨트롤 */
 
+/**
+ * div 기반 래퍼 — label로 감싸면 내부에 체크박스 목록이 있을 때 label 중첩으로
+ * 텍스트 클릭이 첫 컨트롤에 전달되는 오동작이 생긴다.
+ */
 export function Field({
   label,
   hint,
@@ -14,11 +18,11 @@ export function Field({
   children: ReactNode;
 }) {
   return (
-    <label className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1">
       <span className="text-xs font-semibold text-muted-foreground">{label}</span>
       {children}
       {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
-    </label>
+    </div>
   );
 }
 

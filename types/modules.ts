@@ -63,24 +63,45 @@ export interface M03Params {
   libraryKeys: ("male" | "female" | "diagnosis")[];
 }
 
-export interface M04Params {
-  /** 예정이율 (소수, 예: 0.025) */
-  i: number;
-  /**
-   * 기본 v^t(연시) 외에 추가로 등록할 시점 이동 계열 (한국형 유연성).
-   * "mid" → v^{t+1/2}, "end" → v^{t+1}. M10 수식·직접 참조용.
-   */
-  extraTimings: PvTiming[];
+/**
+ * M04 소단계: 시점별 현가율 계열 하나. 위→아래로 추가되고 각각 독립 실행된다.
+ * key는 자산 slot으로 쓰이는 불변 식별자.
+ */
+export interface M04Variant {
+  key: string;
+  /** 연시 v^t · 연중 v^{t+1/2} · 연말 v^{t+1} */
+  timing: PvTiming;
+  /** UI 접힘 상태 (계산과 무관) */
+  collapsed?: boolean;
 }
 
-export interface M05Params {
+export interface M04Params {
+  /** 예정이율 (소수, 예: 0.025) — 소단계가 공유 */
+  i: number;
+  /** 기본 2개: 연시 + 연중. (구버전 extraTimings 파라미터도 계산 레이어가 호환 처리) */
+  variants: M04Variant[];
+}
+
+/**
+ * M05 소단계: 탈퇴 구성 하나 → 계열 자산 하나. 위→아래로 추가되고 독립 실행된다.
+ * 예: 위에 생존자수(l), 아래에 납입면제 반영 납입자수(lp).
+ */
+export interface M05Variant {
+  key: string;
+  /** 용도 태그: 생존자수(l) · 납입자수(lp) */
+  usage: "survivors" | "payers";
   /** 탈퇴원인 q 자산(table) 다중 선택 */
   qAssetIds: string[];
   /** 기수 l0 */
   l0: number;
   combine: DecrementCombine;
-  /** 용도 태그: 생존자수(l) · 납입자수(lp) */
-  usage: "survivors" | "payers";
+  /** UI 접힘 상태 (계산과 무관) */
+  collapsed?: boolean;
+}
+
+export interface M05Params {
+  /** (구버전 평면 파라미터도 계산 레이어가 호환 처리) */
+  variants: M05Variant[];
 }
 
 export interface M06Params {
@@ -112,6 +133,24 @@ export interface M08Params {
   lAssetId: string | null;
 }
 
+/** M09 사업비·영업보험료 (§3.2.3): 방식 A(3이원)·B(단순 부가율). 방식 C(수식)는 P4 */
+export interface M09Params {
+  method: "A" | "B";
+  /** 방식 A: 가입금액 대비 신계약비(1회)·연간 유지비, 영업보험료 대비 수금비 (소수) */
+  alpha: number;
+  beta: number;
+  gamma: number;
+  /** 방식 B: 단순 부가율 k (소수) */
+  loadingK: number;
+  /** 수입·지급현가 스칼라 (기본: M08과 동일 선택) */
+  incomeAssetIds: string[];
+  outgoAssetIds: string[];
+  /** 유지비 기저 E·l0 산출용 생존자수 계열 */
+  lAssetId: string | null;
+  /** E 산출용 현가율 v^t 계열 */
+  vAssetId: string | null;
+}
+
 /**
  * 출력 자산 이름 사용자 지정 (§3.3 표시명·코드 분리).
  * 모든 모듈 params에 `assetNames: Record<slot, AssetNameOverride>`로 선택 포함된다.
@@ -132,7 +171,7 @@ export interface ModuleParamsMap {
   M06: M06Params;
   M07: M07Params;
   M08: M08Params;
-  M09: Record<string, unknown>;
+  M09: M09Params;
   M10: Record<string, unknown>;
   M11: Record<string, unknown>;
 }

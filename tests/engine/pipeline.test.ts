@@ -123,10 +123,17 @@ describe("computeSheet: 실패 처리 (§3.9)", () => {
   });
 });
 
-describe("computeSheet: M04 추가 시점 계열 (한국형 유연성)", () => {
-  it("연중 v^{t+1/2}·연말 v^{t+1} 계열이 자산으로 등록된다", () => {
+describe("computeSheet: M04·M05 소단계 (한국형 유연성)", () => {
+  it("M04 소단계: 연시·연중·연말 계열이 각각 독립 자산으로 등록된다", () => {
     const pipeline = base();
-    pipeline[3] = mk("m4", "M04", { i: 0.025, extraTimings: ["mid", "end"] });
+    pipeline[3] = mk("m4", "M04", {
+      i: 0.025,
+      variants: [
+        { key: "v", timing: "begin" },
+        { key: "v_mid", timing: "mid" },
+        { key: "v_end", timing: "end" },
+      ],
+    });
     const c = computeSheet(pipeline);
     const vp = expected.G1.vp;
     const v = vp[1];
@@ -134,8 +141,46 @@ describe("computeSheet: M04 추가 시점 계열 (한국형 유연성)", () => {
     expect(c.byId["m4:v"].value).toEqual(vp);
     expect(c.byId["m4:v_mid"].value).toEqual(vp.map((x) => x * sqv));
     expect(c.byId["m4:v_end"].value).toEqual(vp.map((x) => x * v));
-    expect(c.byId["m4:v_mid"].def.code).toBe("v1_mid");
+    expect(c.byId["m4:v"].def.code).toBe("v1");
+    expect(c.byId["m4:v_mid"].def.code).toBe("v2");
+    expect(c.byId["m4:v_mid"].tag).toBe("discount_shifted");
     // 추가 계열이 있어도 G1 최종값은 불변
+    expect(c.final.p).toBe(expected.G1.P);
+  });
+
+  it("M04 구버전 extraTimings 파라미터 호환 (동일 slot·값)", () => {
+    const pipeline = base();
+    pipeline[3] = mk("m4", "M04", { i: 0.025, extraTimings: ["mid"] });
+    const c = computeSheet(pipeline);
+    const sqv = Math.sqrt(expected.G1.vp[1]);
+    expect(c.byId["m4:v_mid"].value).toEqual(expected.G1.vp.map((x) => x * sqv));
+    expect(c.final.p).toBe(expected.G1.P);
+  });
+
+  it("M05 소단계: 생존자수 + 납입자수(다른 탈퇴 구성)가 한 단계에서 독립 산출", () => {
+    const pipeline = base();
+    pipeline[2] = mk("m3", "M03", { libraryKeys: ["male", "diagnosis"] });
+    pipeline[4] = mk("m5", "M05", {
+      variants: [
+        { key: "l", usage: "survivors", qAssetIds: ["m3:q_male"], l0: 100_000, combine: "single" },
+        {
+          key: "lp",
+          usage: "payers",
+          qAssetIds: ["m3:q_male", "m3:q_diagnosis"],
+          l0: 100_000,
+          combine: "independent",
+        },
+      ],
+    });
+    const c = computeSheet(pipeline);
+    expect(c.byId["m5:l"].def.code).toBe("l1");
+    expect(c.byId["m5:lp"].def.code).toBe("lp1");
+    expect(c.byId["m5:lp"].tag).toBe("payers");
+    // 납입자수는 두 원인 결합이라 생존자수보다 빠르게 감소
+    const l = c.byId["m5:l"].value as number[];
+    const lp = c.byId["m5:lp"].value as number[];
+    expect(lp[20]).toBeLessThan(l[20]);
+    // 하류(G1)는 l만 참조 — 최종값 불변
     expect(c.final.p).toBe(expected.G1.P);
   });
 });
@@ -201,9 +246,9 @@ describe("recommendNext (§3.1)", () => {
     expect(recommendNext(base().slice(0, 3))).toEqual(["M04", "M03"]);
   });
 
-  it("반복 불가 모듈은 이미 있으면 추천에서 제외", () => {
+  it("반복 불가 모듈은 이미 있으면 추천에서 제외, M08 다음은 M09", () => {
     const p = base();
-    expect(recommendNext(p)).toEqual([]);
+    expect(recommendNext(p)).toEqual(["M09"]);
     expect(recommendNext(p.slice(0, 1))).toEqual(["M02"]);
   });
 });

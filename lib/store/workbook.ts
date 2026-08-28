@@ -1,16 +1,34 @@
 import { create } from "zustand";
 import type { M02Params, ModuleInstance, ModuleTypeId } from "@/types/modules";
-import { computeSheet, repairRefs, type AssetTag, type ComputedAsset } from "@/lib/engine/pipeline";
+import {
+  computeSheet,
+  repairRefs,
+  type AssetTag,
+  type ComputedAsset,
+  type SheetSeed,
+} from "@/lib/engine/pipeline";
 
 /**
- * 게스트 워크북 스토어 (P2: 인메모리 단일 시트).
- * localStorage 저장은 P5(localAdapter), 공용탭·다중 시트는 P3에서 확장한다.
- * 계산 결과는 저장하지 않는다 — 항상 computeSheet로 파생(§3.1 하류 자동 재계산).
- * 단계는 임의 위치 삽입·순서 변경이 가능하다(한국형 유연성 요구).
+ * 게스트 워크북 스토어 (P3: 공용탭 + 다중 일반 탭, 인메모리).
+ * sheets[0]은 항상 공용탭(§2.3). 공용탭 자산은 모든 일반 탭이 참조할 수 있고,
+ * 공용탭 수정 시 참조 탭 전체가 자동 재계산된다(computeWorkbook이 순수 함수).
+ * localStorage 저장은 P5(localAdapter).
  */
 
 const uid = () =>
   globalThis.crypto?.randomUUID?.() ?? `m_${Math.random().toString(36).slice(2, 10)}`;
+
+export interface SheetState {
+  id: string;
+  name: string;
+  sheetType: "shared" | "normal";
+  pipeline: ModuleInstance[];
+}
+
+const initialSheets = (): SheetState[] => [
+  { id: uid(), name: "공용", sheetType: "shared", pipeline: [] },
+  { id: uid(), name: "탭 1", sheetType: "normal", pipeline: [] },
+];
 
 const latestByTag = (assets: ComputedAsset[], ...tags: AssetTag[]): string | null => {
   for (let i = assets.length - 1; i >= 0; i--) {
@@ -19,7 +37,7 @@ const latestByTag = (assets: ComputedAsset[], ...tags: AssetTag[]): string | nul
   return null;
 };
 
-/** 새 모듈의 기본 파라미터 — 삽입 위치의 상류 자산을 자동 연결해 클릭 수를 줄인다 (§3.1) */
+/** 새 모듈의 기본 파라미터 — 삽입 위치의 상류(공용탭 포함) 자산을 자동 연결 (§3.1) */
 function defaultParams(
   type: ModuleTypeId,
   assets: ComputedAsset[],
@@ -37,10 +55,21 @@ function defaultParams(
       // 성별 자동 적용 (§3.2 M03)
       return { libraryKeys: [contract?.sex === "female" ? "female" : "male"] };
     case "M04":
-      return { i: 0.025, extraTimings: [] };
+      // 기본 소단계 2개: 연시 v^t + 연중 v^{t+1/2}
+      return {
+        i: 0.025,
+        variants: [
+          { key: "v", timing: "begin" },
+          { key: "v_mid", timing: "mid" },
+        ],
+      };
     case "M05": {
       const q = latestByTag(assets, "rate");
-      return { qAssetIds: q ? [q] : [], l0: 100_000, combine: "single", usage: "survivors" };
+      return {
+        variants: [
+          { key: "l", usage: "survivors", qAssetIds: q ? [q] : [], l0: 100_000, combine: "single" },
+        ],
+      };
     }
     case "M06":
       return {
@@ -67,6 +96,18 @@ function defaultParams(
         incomeAssetIds: assets.filter((a) => a.tag === "pv_in").map((a) => a.def.id),
         outgoAssetIds: assets.filter((a) => a.tag === "pv_out").map((a) => a.def.id),
         lAssetId: latestByTag(assets, "survivors"),
+      };
+    case "M09":
+      return {
+        method: "A",
+        alpha: 0.03,
+        beta: 0.002,
+        gamma: 0.03,
+        loadingK: 0.1,
+        incomeAssetIds: assets.filter((a) => a.tag === "pv_in").map((a) => a.def.id),
+        outgoAssetIds: assets.filter((a) => a.tag === "pv_out").map((a) => a.def.id),
+        lAssetId: latestByTag(assets, "survivors"),
+        vAssetId: latestByTag(assets, "discount"),
       };
     default:
       return {};
@@ -103,8 +144,18 @@ function buildStandardPipeline(kind: ProductPreset): ModuleInstance[] {
       sumAssured: 100_000_000, roundDigit: 0, roundMode: "round",
     }),
     mk(m3, "M03", { libraryKeys: ["male"] }),
-    mk(m4, "M04", { i: 0.025, extraTimings: [] }),
-    mk(m5, "M05", { qAssetIds: [q], l0: 100_000, combine: "single", usage: "survivors" }),
+    mk(m4, "M04", {
+      i: 0.025,
+      variants: [
+        { key: "v", timing: "begin" },
+        { key: "v_mid", timing: "mid" },
+      ],
+    }),
+    mk(m5, "M05", {
+      variants: [
+        { key: "l", usage: "survivors", qAssetIds: [q], l0: 100_000, combine: "single" },
+      ],
+    }),
     ...(hasDeath ? [mk(m6, "M06", { lAssetId: l, qAssetId: q })] : []),
     mk(m7in, "M07", {
       kind: "income", timing: "begin", seriesAssetId: l, vAssetId: v,
@@ -134,16 +185,22 @@ function buildStandardPipeline(kind: ProductPreset): ModuleInstance[] {
 }
 
 interface WorkbookStore {
-  pipeline: ModuleInstance[];
+  sheets: SheetState[];
+  activeSheetId: string;
   expandedId: string | null;
-  /** 종목 선택 → 표준 플로우 전체 구성 (빈 워크북에서) */
+
+  // ── 시트 조작 ──
+  setActiveSheet: (id: string) => void;
+  addSheet: () => void;
+  duplicateSheet: (id: string) => void;
+  removeSheet: (id: string) => void;
+  renameSheet: (id: string, name: string) => void;
+
+  // ── 활성 시트의 모듈 조작 ──
   applyPreset: (kind: ProductPreset) => void;
-  /** 끝에 추가 */
   addModule: (type: ModuleTypeId) => void;
-  /** index 위치에 삽입 (0 = 맨 앞) */
   addModuleAt: (index: number, type: ModuleTypeId) => void;
   moveModule: (id: string, dir: "up" | "down") => void;
-  /** 깨진·빈 참조를 상류 자산으로 자동 재연결 */
   reconnectRefs: (id: string) => void;
   updateParams: (id: string, patch: Record<string, unknown>) => void;
   updateTitle: (id: string, title: string) => void;
@@ -152,70 +209,143 @@ interface WorkbookStore {
   reset: () => void;
 }
 
-export const useWorkbook = create<WorkbookStore>((set, get) => ({
-  pipeline: [],
-  expandedId: null,
+/** 대상 시트가 일반 탭이면 공용탭 시드 반환 */
+function seedFor(sheets: SheetState[], sheetId: string): SheetSeed | undefined {
+  const target = sheets.find((s) => s.id === sheetId);
+  if (!target || target.sheetType === "shared") return undefined;
+  const shared = sheets.find((s) => s.sheetType === "shared");
+  if (!shared) return undefined;
+  const comp = computeSheet(shared.pipeline);
+  return { assets: comp.assets, contract: comp.contract };
+}
 
-  applyPreset: (kind) => {
-    const pipeline = buildStandardPipeline(kind);
-    set({ pipeline, expandedId: pipeline[0].id });
-  },
-
-  addModule: (type) => get().addModuleAt(get().pipeline.length, type),
-
-  addModuleAt: (index, type) => {
-    const { pipeline } = get();
-    // 삽입 위치의 상류만으로 기본 참조를 채운다
-    const comp = computeSheet(pipeline.slice(0, index));
-    const mod: ModuleInstance = {
-      id: uid(),
-      type,
-      params: defaultParams(type, comp.assets, comp.contract),
-      refs: [],
-      outputs: [],
-    };
-    const next = [...pipeline.slice(0, index), mod, ...pipeline.slice(index)];
-    set({ pipeline: next, expandedId: mod.id });
-  },
-
-  moveModule: (id, dir) =>
-    set((s) => {
-      const i = s.pipeline.findIndex((m) => m.id === id);
-      const j = dir === "up" ? i - 1 : i + 1;
-      if (i < 0 || j < 0 || j >= s.pipeline.length) return s;
-      const next = [...s.pipeline];
-      [next[i], next[j]] = [next[j], next[i]];
-      return { ...s, pipeline: next };
-    }),
-
-  reconnectRefs: (id) => {
-    const { pipeline } = get();
-    const i = pipeline.findIndex((m) => m.id === id);
-    if (i < 0) return;
-    const comp = computeSheet(pipeline.slice(0, i));
-    const patch = repairRefs(pipeline[i], comp.assets);
-    if (patch) get().updateParams(id, patch);
-  },
-
-  updateParams: (id, patch) =>
+export const useWorkbook = create<WorkbookStore>((set, get) => {
+  const patchActive = (fn: (pipeline: ModuleInstance[]) => ModuleInstance[]) =>
     set((s) => ({
-      pipeline: s.pipeline.map((m) =>
-        m.id === id ? { ...m, params: { ...m.params, ...patch } } : m,
+      sheets: s.sheets.map((sh) =>
+        sh.id === s.activeSheetId ? { ...sh, pipeline: fn(sh.pipeline) } : sh,
       ),
-    })),
+    }));
+  const active = () => {
+    const s = get();
+    return s.sheets.find((sh) => sh.id === s.activeSheetId)!;
+  };
 
-  updateTitle: (id, title) =>
-    set((s) => ({
-      pipeline: s.pipeline.map((m) => (m.id === id ? { ...m, title: title || undefined } : m)),
-    })),
+  const first = initialSheets();
+  return {
+    sheets: first,
+    activeSheetId: first[1].id,
+    expandedId: null,
 
-  removeModule: (id) =>
-    set((s) => ({
-      pipeline: s.pipeline.filter((m) => m.id !== id),
-      expandedId: s.expandedId === id ? null : s.expandedId,
-    })),
+    setActiveSheet: (id) => set({ activeSheetId: id, expandedId: null }),
 
-  setExpanded: (id) => set({ expandedId: id }),
+    addSheet: () =>
+      set((s) => {
+        const n = s.sheets.filter((sh) => sh.sheetType === "normal").length + 1;
+        const sheet: SheetState = { id: uid(), name: `탭 ${n}`, sheetType: "normal", pipeline: [] };
+        return { sheets: [...s.sheets, sheet], activeSheetId: sheet.id, expandedId: null };
+      }),
 
-  reset: () => set({ pipeline: [], expandedId: null }),
-}));
+    duplicateSheet: (id) =>
+      set((s) => {
+        const src = s.sheets.find((sh) => sh.id === id);
+        if (!src) return s;
+        // 모듈 id 재발급 + 시트 내부 참조 재연결 (공용탭 참조는 그대로 유지)
+        let json = JSON.stringify(src.pipeline);
+        for (const m of src.pipeline) json = json.split(m.id).join(uid());
+        const sheet: SheetState = {
+          id: uid(),
+          name: `${src.name} 복사본`,
+          sheetType: "normal",
+          pipeline: JSON.parse(json),
+        };
+        const i = s.sheets.findIndex((sh) => sh.id === id);
+        const sheets = [...s.sheets.slice(0, i + 1), sheet, ...s.sheets.slice(i + 1)];
+        return { sheets, activeSheetId: sheet.id, expandedId: null };
+      }),
+
+    removeSheet: (id) =>
+      set((s) => {
+        const target = s.sheets.find((sh) => sh.id === id);
+        if (!target || target.sheetType === "shared") return s;
+        let sheets = s.sheets.filter((sh) => sh.id !== id);
+        if (!sheets.some((sh) => sh.sheetType === "normal")) {
+          sheets = [...sheets, { id: uid(), name: "탭 1", sheetType: "normal", pipeline: [] }];
+        }
+        const activeSheetId =
+          s.activeSheetId === id
+            ? sheets.find((sh) => sh.sheetType === "normal")!.id
+            : s.activeSheetId;
+        return { sheets, activeSheetId, expandedId: null };
+      }),
+
+    renameSheet: (id, name) =>
+      set((s) => ({
+        sheets: s.sheets.map((sh) => (sh.id === id ? { ...sh, name: name || sh.name } : sh)),
+      })),
+
+    applyPreset: (kind) => {
+      const pipeline = buildStandardPipeline(kind);
+      patchActive(() => pipeline);
+      set({ expandedId: pipeline[0].id });
+    },
+
+    addModule: (type) => get().addModuleAt(active().pipeline.length, type),
+
+    addModuleAt: (index, type) => {
+      const s = get();
+      const seed = seedFor(s.sheets, s.activeSheetId);
+      const comp = computeSheet(active().pipeline.slice(0, index), seed);
+      const mod: ModuleInstance = {
+        id: uid(),
+        type,
+        params: defaultParams(type, comp.assets, comp.contract),
+        refs: [],
+        outputs: [],
+      };
+      patchActive((p) => [...p.slice(0, index), mod, ...p.slice(index)]);
+      set({ expandedId: mod.id });
+    },
+
+    moveModule: (id, dir) =>
+      patchActive((p) => {
+        const i = p.findIndex((m) => m.id === id);
+        const j = dir === "up" ? i - 1 : i + 1;
+        if (i < 0 || j < 0 || j >= p.length) return p;
+        const next = [...p];
+        [next[i], next[j]] = [next[j], next[i]];
+        return next;
+      }),
+
+    reconnectRefs: (id) => {
+      const s = get();
+      const pipeline = active().pipeline;
+      const i = pipeline.findIndex((m) => m.id === id);
+      if (i < 0) return;
+      const seed = seedFor(s.sheets, s.activeSheetId);
+      const comp = computeSheet(pipeline.slice(0, i), seed);
+      const patch = repairRefs(pipeline[i], comp.assets);
+      if (patch) get().updateParams(id, patch);
+    },
+
+    updateParams: (id, patch) =>
+      patchActive((p) =>
+        p.map((m) => (m.id === id ? { ...m, params: { ...m.params, ...patch } } : m)),
+      ),
+
+    updateTitle: (id, title) =>
+      patchActive((p) => p.map((m) => (m.id === id ? { ...m, title: title || undefined } : m))),
+
+    removeModule: (id) => {
+      patchActive((p) => p.filter((m) => m.id !== id));
+      set((s) => ({ expandedId: s.expandedId === id ? null : s.expandedId }));
+    },
+
+    setExpanded: (id) => set({ expandedId: id }),
+
+    reset: () => {
+      const sheets = initialSheets();
+      set({ sheets, activeSheetId: sheets[1].id, expandedId: null });
+    },
+  };
+});

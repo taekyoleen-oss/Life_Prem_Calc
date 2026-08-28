@@ -71,6 +71,27 @@ g2_p = g2_pv_out / pv_in
 g3_p = pv_death_mid / pv_in
 g3_p_diff = g3_p - g1_p
 
+# ── G5: 공용탭(계약·사망률·이자율) + 진단특약 탭 ──────────────────
+# l_특약: 사망률 × 진단률 독립 곱, 진단급부 S2 = 1천만, 연말 현가
+Q_DIAG = RATES["diagnosis"][X : X + N]
+S2 = 10_000_000
+
+l2 = [float(L0)]
+for t in range(N):
+    l2.append(l2[t] * (1 - q[t]) * (1 - Q_DIAG[t]))
+
+d2 = [l2[t] * Q_DIAG[t] for t in range(N)]
+
+pv_in2 = 0.0
+for t in range(M):
+    pv_in2 += l2[t] * vp[t]
+
+pv_diag = 0.0
+for t in range(N):
+    pv_diag += S2 * d2[t] * vp[t + 1]
+
+g5_p = pv_diag / pv_in2
+
 # ── G4: G2 + 사업비 방식 A (α·β·γ 예시값) ────────────────────────
 ALPHA = 0.03   # 가입금액 대비 신계약비 (계약 시 1회)
 BETA = 0.002   # 가입금액 대비 연간 유지비 (보험기간 연시)
@@ -105,6 +126,7 @@ expected = {
     "G4": {"maintenanceBase": e_maint, "G": g4_g,
            "loadingAlpha": g4_load_alpha, "loadingBeta": g4_load_beta,
            "loadingGamma": g4_load_gamma, "loadingTotal": g4_load_total},
+    "G5": {"S2": S2, "l": l2, "d": d2, "pvIn": pv_in2, "pvDiag": pv_diag, "P": g5_p},
 }
 
 out = os.path.join(ROOT, "tests", "golden", "expected.json")
@@ -118,3 +140,4 @@ print(f"G1  NSP = {g1_nsp!r}\nG1    P = {g1_p!r}")
 print(f"G2  NSP = {g2_nsp!r}\nG2    P = {g2_p!r}")
 print(f"G3    P = {g3_p!r}  (diff = {g3_p_diff!r})")
 print(f"G4    G = {g4_g!r}  (loading = {g4_load_total!r})")
+print(f"G5    P = {g5_p!r}  (특약 진단급부 {S2:,})")

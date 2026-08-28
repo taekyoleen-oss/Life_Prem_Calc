@@ -1,22 +1,27 @@
 import { ASSET_CODE_RE, type AssetDef } from "@/types/assets";
 import type {
   AssetNameOverride,
+  DecrementCombine,
   M01Params,
   M02Params,
   M03Params,
   M04Params,
+  M04Variant,
   M05Params,
+  M05Variant,
   M06Params,
   M07Params,
   M08Params,
+  M09Params,
   ModuleInstance,
   ModuleStatus,
   ModuleTypeId,
+  PvTiming,
 } from "@/types/modules";
 import rates from "./seed/dummy-rates.json";
 import { deaths, survivors } from "./decrement";
 import { discountFactors, pvBenefit, pvIncome, pvMaturity } from "./pv";
-import { annualNetPremium, netSinglePremium, roundPremium } from "./premium";
+import { annualNetPremium, grossPremiumA, grossPremiumB, netSinglePremium, roundPremium } from "./premium";
 import { fmt, fmtPct } from "@/lib/format";
 
 /**
@@ -62,6 +67,8 @@ export interface ModuleResult {
   message?: string;
   /** 계산은 계속되는 경고 (예: 코드 중복 → 기본 코드 사용) */
   warning?: string;
+  /** 카드 표시용 부가 수치 (예: M09 부가보험료 분해) */
+  extra?: Record<string, number>;
   assets: ComputedAsset[];
   /** 완료 요약 칩 (§3.1) */
   summary: string[];
@@ -74,7 +81,7 @@ export interface SheetComputation {
   assets: ComputedAsset[];
   byId: Record<string, ComputedAsset>;
   contract: M02Params | null;
-  final: { nsp: number | null; p: number | null; pRounded: number | null };
+  final: { nsp: number | null; p: number | null; pRounded: number | null; g: number | null; gRounded: number | null };
 }
 
 /** 공용 라이브러리 (P2: 더미 표만, 설계서 §10-2) */
@@ -97,7 +104,7 @@ export const MODULE_CATALOG: Record<
   M06: { label: "사망자수·발생자수", repeatable: true, available: true, desc: "d = l·q" },
   M07: { label: "현가합", repeatable: true, available: true, desc: "수입·지급 현가와 합계" },
   M08: { label: "순보험료", repeatable: false, available: true, desc: "NSP·연납 P" },
-  M09: { label: "사업비·영업보험료", repeatable: false, available: false, desc: "P3에서 제공" },
+  M09: { label: "사업비·영업보험료", repeatable: false, available: true, desc: "방식 A(3이원)·B(부가율)" },
   M10: { label: "사용자 수식", repeatable: true, available: false, desc: "P4에서 제공" },
   M11: { label: "결과 요약", repeatable: false, available: false, desc: "P4에서 제공" },
 };
@@ -111,7 +118,8 @@ const NEXT_RECOMMEND: Partial<Record<ModuleTypeId, ModuleTypeId[]>> = {
   M05: ["M06", "M05"],
   M06: ["M07"],
   M07: ["M07", "M08"],
-  M08: [],
+  M08: ["M09"],
+  M09: [],
 };
 
 export function recommendNext(pipeline: ModuleInstance[]): ModuleTypeId[] {
@@ -237,15 +245,30 @@ function needTag(a: ComputedAsset, tags: AssetTag[], what: string): ComputedAsse
 
 const TIMING_LABEL = { begin: "연시", mid: "연중", end: "연말" } as const;
 
-export function computeSheet(pipeline: ModuleInstance[]): SheetComputation {
+/** 공용탭 자산을 일반 탭 계산에 주입하는 시드 (§2.3) */
+export interface SheetSeed {
+  assets: ComputedAsset[];
+  contract: M02Params | null;
+}
+
+export function computeSheet(pipeline: ModuleInstance[], seed?: SheetSeed): SheetComputation {
   const ctx: Ctx = {
     registry: new Map(),
     order: [],
     codes: new Set(),
     contract: null,
   };
+  if (seed) {
+    // 공용탭 자산: 참조 가능 + 코드 유일성 범위 공유 (§3.3 — 일반 탭이 공용탭 코드 재사용 금지)
+    for (const a of seed.assets) {
+      ctx.registry.set(a.def.id, a);
+      ctx.order.push(a);
+      ctx.codes.add(a.def.code);
+    }
+    ctx.contract = seed.contract;
+  }
   const results: Record<string, ModuleResult> = {};
-  const final: SheetComputation["final"] = { nsp: null, p: null, pRounded: null };
+  const final: SheetComputation["final"] = { nsp: null, p: null, pRounded: null, g: null, gRounded: null };
 
   for (const mod of pipeline) {
     const assets: ComputedAsset[] = [];
@@ -253,6 +276,7 @@ export function computeSheet(pipeline: ModuleInstance[]): SheetComputation {
     const warnings: string[] = [];
     let status: ModuleStatus = "done";
     let message: string | undefined;
+    let extraOut: Record<string, number> | undefined;
 
     try {
       switch (mod.type) {
@@ -307,65 +331,79 @@ export function computeSheet(pipeline: ModuleInstance[]): SheetComputation {
           break;
         }
         case "M04": {
-          const p = mod.params as unknown as M04Params;
+          const p = mod.params as unknown as M04Params & { extraTimings?: PvTiming[] };
           const c = requireContract(ctx);
           if (!(p.i >= 0)) throw new IncompleteError("예정이율을 입력하세요.");
+          // 소단계 목록 (구버전 extraTimings·단일 파라미터 호환)
+          const variants: M04Variant[] =
+            p.variants ??
+            [
+              { key: "v", timing: "begin" as PvTiming },
+              ...(p.extraTimings ?? [])
+                .filter((t) => t === "mid" || t === "end")
+                .map((t) => ({ key: `v_${t}`, timing: t })),
+            ];
+          if (variants.length === 0) throw new IncompleteError("현가율 소단계를 1개 이상 두세요.");
           // v^t는 n+1개 필요, 연말 이동 계열은 v^{n+1}까지 필요
           const vpFull = discountFactors(p.i, c.years + 2);
           const vp = vpFull.slice(0, c.years + 1);
-          const extra = (p.extraTimings ?? []).filter((t) => t === "mid" || t === "end");
-          const k = nextIndex(ctx, "v", ["", "_mid", "_end"]);
-          assets.push(
-            register(ctx, mod, warnings, {
-              slot: "v", code: `v${k}`, displayName: `v_${fmtPct(p.i)}`,
-              kind: "series", value: vp, tag: "discount",
-            }),
+          const sqv = Math.sqrt(vpFull[1]);
+          for (const va of variants) {
+            const value =
+              va.timing === "begin" ? vp
+              : va.timing === "mid" ? vp.map((x) => x * sqv)
+              : vpFull.slice(1, c.years + 2);
+            assets.push(
+              register(ctx, mod, warnings, {
+                slot: va.key,
+                code: `v${nextIndex(ctx, "v")}`,
+                displayName: `v_${fmtPct(p.i)}(${TIMING_LABEL[va.timing]})`,
+                kind: "series", value,
+                tag: va.timing === "begin" ? "discount" : "discount_shifted",
+              }),
+            );
+          }
+          summary.push(
+            `i = ${fmtPct(p.i)}`, "연복리",
+            `계열 ${variants.length}개: ${variants.map((va) => TIMING_LABEL[va.timing]).join("·")}`,
           );
-          if (extra.includes("mid")) {
-            const sqv = Math.sqrt(vpFull[1]);
-            assets.push(
-              register(ctx, mod, warnings, {
-                slot: "v_mid", code: `v${k}_mid`, displayName: `v_${fmtPct(p.i)}(연중)`,
-                kind: "series", value: vp.map((x) => x * sqv), tag: "discount_shifted",
-              }),
-            );
-          }
-          if (extra.includes("end")) {
-            assets.push(
-              register(ctx, mod, warnings, {
-                slot: "v_end", code: `v${k}_end`, displayName: `v_${fmtPct(p.i)}(연말)`,
-                kind: "series", value: vpFull.slice(1, c.years + 2), tag: "discount_shifted",
-              }),
-            );
-          }
-          summary.push(`i = ${fmtPct(p.i)}`, "연복리");
-          if (extra.length > 0) summary.push(`추가 계열: ${extra.map((t) => TIMING_LABEL[t as "mid" | "end"]).join("·")}`);
           break;
         }
         case "M05": {
-          const p = mod.params as unknown as M05Params;
+          const raw = mod.params as unknown as M05Params & {
+            qAssetIds?: string[]; l0?: number; combine?: DecrementCombine; usage?: "survivors" | "payers";
+          };
           const c = requireContract(ctx);
-          if (p.qAssetIds.length === 0) throw new IncompleteError("탈퇴원인 q 계열을 선택하세요.");
-          if (!(p.l0 > 0)) throw new IncompleteError("기수 l0를 입력하세요.");
-          const tables = p.qAssetIds.map((id) => asTable(needTag(need(ctx, id), ["rate"], "위험률 표")));
-          const slices = tables.map((t) => sliceTable(t, c.age, c.years));
-          const l = survivors(p.l0, slices, p.combine);
-          const hasMortality = tables.some((t) => t.isMortality);
-          const isPayer = p.usage === "payers";
-          assets.push(
-            register(ctx, mod, warnings, {
-              slot: "l",
-              code: isPayer ? `lp${nextIndex(ctx, "lp")}` : `l${nextIndex(ctx, "l")}`,
-              displayName: isPayer ? "lp_납입자수" : "l_생존자수",
-              kind: "series", value: l, tag: isPayer ? "payers" : "survivors",
-            }),
-          );
-          const combineLabel = { single: "단일탈퇴", independent: "독립 곱", sum: "단순 합산" }[p.combine];
-          summary.push(
-            `l0 = ${fmt(p.l0)}`,
-            p.qAssetIds.length > 1 ? `${combineLabel}(${p.qAssetIds.length}원인)` : combineLabel,
-            hasMortality ? "사망 포함" : "사망 미포함",
-          );
+          // 소단계 목록 (구버전 평면 파라미터 호환)
+          const variants: M05Variant[] = raw.variants ?? [{
+            key: "l",
+            usage: raw.usage ?? "survivors",
+            qAssetIds: raw.qAssetIds ?? [],
+            l0: raw.l0 ?? 100_000,
+            combine: raw.combine ?? "single",
+          }];
+          if (variants.length === 0) throw new IncompleteError("소단계를 1개 이상 두세요.");
+          for (const va of variants) {
+            if (va.qAssetIds.length === 0) throw new IncompleteError("탈퇴원인 q 계열을 선택하세요.");
+            if (!(va.l0 > 0)) throw new IncompleteError("기수 l0를 입력하세요.");
+            const tables = va.qAssetIds.map((id) => asTable(needTag(need(ctx, id), ["rate"], "위험률 표")));
+            const slices = tables.map((t) => sliceTable(t, c.age, c.years));
+            const l = survivors(va.l0, slices, va.combine);
+            const hasMortality = tables.some((t) => t.isMortality);
+            const isPayer = va.usage === "payers";
+            assets.push(
+              register(ctx, mod, warnings, {
+                slot: va.key,
+                code: isPayer ? `lp${nextIndex(ctx, "lp")}` : `l${nextIndex(ctx, "l")}`,
+                displayName: isPayer ? "lp_납입자수" : "l_생존자수",
+                kind: "series", value: l, tag: isPayer ? "payers" : "survivors",
+              }),
+            );
+            const combineLabel = { single: "단일탈퇴", independent: "독립 곱", sum: "단순 합산" }[va.combine];
+            summary.push(
+              `${isPayer ? "lp" : "l"}: ${combineLabel}${va.qAssetIds.length > 1 ? `(${va.qAssetIds.length}원인)` : ""} · ${hasMortality ? "사망 포함" : "사망 미포함"}`,
+            );
+          }
           break;
         }
         case "M06": {
@@ -462,6 +500,60 @@ export function computeSheet(pipeline: ModuleInstance[]): SheetComputation {
           summary.push(`연납 P = ${fmt(pAnnual, 2)}원`, `단수처리 후 ${fmt(final.pRounded)}원`);
           break;
         }
+        case "M09": {
+          const p = mod.params as unknown as M09Params;
+          const c = requireContract(ctx);
+          if (p.incomeAssetIds.length === 0) throw new IncompleteError("수입현가 자산을 선택하세요.");
+          if (p.outgoAssetIds.length === 0) throw new IncompleteError("지급현가 자산을 선택하세요.");
+          const pickOrdered = (sel: string[]) =>
+            ctx.order.filter((a) => sel.includes(a.def.id)).map((a) => asScalar(a));
+          let pvIn = 0;
+          for (const x of pickOrdered(p.incomeAssetIds)) pvIn += x;
+          let pvOut = 0;
+          for (const x of pickOrdered(p.outgoAssetIds)) pvOut += x;
+
+          let G: number;
+          if (p.method === "A") {
+            if (!(p.alpha >= 0) || !(p.beta >= 0) || !(p.gamma >= 0) || p.gamma >= 1) {
+              throw new IncompleteError("α·β·γ를 입력하세요 (γ < 1).");
+            }
+            const l = asSeries(needTag(need(ctx, p.lAssetId), ["survivors", "payers"], "생존자수"));
+            const vp = asSeries(needTag(need(ctx, p.vAssetId), ["discount"], "현가율(v^t)"));
+            // 유지비 기저 E = Σ_{t=0}^{n-1} l·v^t (보험기간 연시) — pvIncome과 동일 축차
+            const maintenanceBase = pvIncome(l, vp, c.years);
+            const r = grossPremiumA({
+              alpha: p.alpha, beta: p.beta, gamma: p.gamma,
+              S: c.sumAssured, l0: l[0], pvOut, pvIn, maintenanceBase,
+            });
+            G = r.G;
+            extraOut = {
+              loadingAlpha: r.loadingAlpha,
+              loadingBeta: r.loadingBeta,
+              loadingGamma: r.loadingGamma,
+              loadingTotal: r.loadingTotal,
+              maintenanceBase,
+            };
+          } else {
+            if (!(p.loadingK >= 0) || p.loadingK >= 1) throw new IncompleteError("부가율 k를 입력하세요 (0 ≤ k < 1).");
+            const net = annualNetPremium(pvOut, pvIn);
+            G = grossPremiumB(net, p.loadingK);
+            extraOut = { loadingTotal: G - net };
+          }
+          assets.push(
+            register(ctx, mod, warnings, {
+              slot: "g", code: "g_annual", displayName: "연납 영업보험료 G",
+              kind: "scalar", value: G, tag: "premium",
+            }),
+          );
+          final.g = G;
+          final.gRounded = roundPremium(G, c.roundDigit, c.roundMode);
+          summary.push(
+            p.method === "A" ? `방식 A (α=${fmtPct(p.alpha)}·β=${fmtPct(p.beta)}·γ=${fmtPct(p.gamma)})` : `방식 B (k=${fmtPct(p.loadingK)})`,
+            `G = ${fmt(G, 2)}원`,
+            `단수처리 후 ${fmt(final.gRounded)}원`,
+          );
+          break;
+        }
         default:
           throw new Error(`${mod.type} 모듈은 이후 페이즈에서 제공됩니다.`);
       }
@@ -480,6 +572,7 @@ export function computeSheet(pipeline: ModuleInstance[]): SheetComputation {
       status,
       message,
       warning: warnings.length > 0 ? warnings.join(" ") : undefined,
+      extra: extraOut,
       assets,
       summary,
     };
@@ -488,6 +581,26 @@ export function computeSheet(pipeline: ModuleInstance[]): SheetComputation {
   const byId: Record<string, ComputedAsset> = {};
   for (const a of ctx.order) byId[a.def.id] = a;
   return { results, assets: ctx.order, byId, contract: ctx.contract, final };
+}
+
+/**
+ * 워크북 전체 계산 (§2.3): 공용탭을 먼저 계산하고, 그 자산·계약조건을
+ * 모든 일반 탭에 시드로 주입한다. 공용탭 수정 시 참조 탭 전체가 자동
+ * 재계산되는 것은 이 함수가 순수 함수라는 사실에서 따라온다.
+ */
+export function computeWorkbook(
+  sheets: { id: string; sheetType: "shared" | "normal"; pipeline: ModuleInstance[] }[],
+): Record<string, SheetComputation> {
+  const shared = sheets.find((s) => s.sheetType === "shared");
+  const sharedComp = shared ? computeSheet(shared.pipeline) : null;
+  const seed: SheetSeed | undefined = sharedComp
+    ? { assets: sharedComp.assets, contract: sharedComp.contract }
+    : undefined;
+  const out: Record<string, SheetComputation> = {};
+  for (const s of sheets) {
+    out[s.id] = s.sheetType === "shared" ? sharedComp! : computeSheet(s.pipeline, seed);
+  }
+  return out;
 }
 
 // ── 참조 자동 재연결 (§3.9 보강) ─────────────────────────────────
@@ -517,9 +630,16 @@ const REF_FIELDS: Partial<Record<ModuleTypeId, RefFieldSpec[]>> = {
     { field: "outgoAssetIds", many: true, fillAll: true, tags: () => ["pv_out"] },
     { field: "lAssetId", tags: () => ["survivors"] },
   ],
+  M09: [
+    { field: "incomeAssetIds", many: true, fillAll: true, tags: () => ["pv_in"] },
+    { field: "outgoAssetIds", many: true, fillAll: true, tags: () => ["pv_out"] },
+    { field: "lAssetId", tags: () => ["survivors"] },
+    { field: "vAssetId", tags: () => ["discount"] },
+  ],
 };
 
 export const REF_FIELD_LABEL: Record<string, string> = {
+  variants: "탈퇴원인 q (소단계)",
   qAssetIds: "탈퇴원인 q",
   lAssetId: "l 계열",
   qAssetId: "q 계열",
@@ -537,10 +657,31 @@ export function repairRefs(
   mod: ModuleInstance,
   upstream: ComputedAsset[],
 ): Record<string, unknown> | null {
-  const specs = REF_FIELDS[mod.type];
-  if (!specs) return null;
   const ids = new Set(upstream.map((a) => a.def.id));
   const byTag = (tags: AssetTag[]) => upstream.filter((a) => tags.includes(a.tag));
+
+  // M05 소단계: 각 변형의 qAssetIds를 개별 수리
+  if (mod.type === "M05" && Array.isArray(mod.params.variants)) {
+    const variants = mod.params.variants as M05Variant[];
+    let changed = false;
+    const next = variants.map((va) => {
+      const kept = va.qAssetIds.filter((x) => ids.has(x));
+      let ids2 = kept;
+      if (kept.length === 0) {
+        const cands = byTag(["rate"]);
+        ids2 = cands.length > 0 ? [cands[cands.length - 1].def.id] : [];
+      }
+      if (ids2.length !== va.qAssetIds.length || ids2.some((x, i) => x !== va.qAssetIds[i])) {
+        changed = true;
+        return { ...va, qAssetIds: ids2 };
+      }
+      return va;
+    });
+    return changed ? { variants: next } : null;
+  }
+
+  const specs = REF_FIELDS[mod.type];
+  if (!specs) return null;
   const patch: Record<string, unknown> = {};
 
   for (const s of specs) {

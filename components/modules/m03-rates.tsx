@@ -3,7 +3,7 @@
 import type { M03Params } from "@/types/modules";
 import { RATE_LIBRARY, type RateTable } from "@/lib/engine/pipeline";
 import { DataGrid, type GridColumn } from "@/components/grid/DataGrid";
-import { Field } from "./fields";
+import { Field, SelectInput } from "./fields";
 import type { ModuleFormProps } from "./types";
 
 const KEYS = ["male", "female", "diagnosis"] as const;
@@ -39,9 +39,18 @@ export function M03Rates({ mod, result, contract, update }: ModuleFormProps) {
 
   return (
     <div className="flex flex-col gap-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="위험률 표 불러오기" hint="파일 업로드·붙여넣기는 다음 단계에서 제공">
+          <SelectInput
+            value="dummy_v1"
+            onChange={() => {}}
+            options={[{ value: "dummy_v1", label: "더미 위험률 표 v1 (연령 0~100, 공용 라이브러리)" }]}
+          />
+        </Field>
+      </div>
       <Field
-        label="위험률 선택 (공용 라이브러리 · 다중 선택)"
-        hint="여러 개를 선택하면 한 단계에서 q 계열이 여러 변수로 등록됩니다. 파일 업로드·붙여넣기는 P3에서 제공"
+        label="사용할 열 선택 (다중)"
+        hint="표의 열 중 필요한 계열만 골라 변수로 등록합니다. 성별은 계약조건에 따라 자동 제안됩니다."
       >
         <div className="flex flex-col gap-1.5 pt-1">
           {KEYS.map((key) => {

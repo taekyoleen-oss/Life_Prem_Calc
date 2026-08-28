@@ -3,23 +3,32 @@
 import type { SheetComputation } from "@/lib/engine/pipeline";
 import { fmt } from "@/lib/format";
 
-/** 우측 고정 결과 요약 패널 (§3.6) */
+/** 우측 고정 결과 요약 패널 (§3.6) — 활성 탭 기준 */
 export function ResultPanel({
   computation,
   moduleCount,
+  sheetName,
+  isShared,
   onReset,
 }: {
   computation: SheetComputation;
   moduleCount: number;
+  sheetName: string;
+  isShared: boolean;
   onReset: () => void;
 }) {
   const { contract, final, results } = computation;
   const doneCount = Object.values(results).filter((r) => r.status === "done").length;
+  const headline = final.g ?? final.p;
+  const headlineRounded = final.g !== null ? final.gRounded : final.pRounded;
+  const headlineLabel = final.g !== null ? "영업보험료 G (단수처리 후)" : "순보험료 P (단수처리 후)";
 
   return (
     <aside className="flex flex-col gap-4">
       <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-        <h2 className="mb-3 text-sm font-bold">결과 요약</h2>
+        <h2 className="mb-3 text-sm font-bold">
+          결과 요약 <span className="ml-1 font-normal text-muted-foreground">— {sheetName}</span>
+        </h2>
 
         <dl className="flex flex-col gap-1.5 text-sm">
           <div className="flex justify-between">
@@ -47,9 +56,11 @@ export function ResultPanel({
 
         <hr className="my-3 border-border" />
 
-        {final.p === null ? (
+        {headline === null ? (
           <p className="text-sm text-muted-foreground">
-            M08(순보험료)까지 완료하면 보험료가 표시됩니다.
+            {isShared
+              ? "공용탭은 다른 탭이 참조하는 기초 자산을 제공합니다."
+              : "M08(순보험료)까지 완료하면 보험료가 표시됩니다."}
           </p>
         ) : (
           <div className="flex flex-col gap-2.5">
@@ -59,13 +70,21 @@ export function ResultPanel({
                 <p className="tabular text-base font-semibold">{fmt(final.nsp, 2)}원</p>
               </div>
             )}
-            <div>
-              <p className="text-xs text-muted-foreground">연납 순보험료 P</p>
-              <p className="tabular text-base font-semibold">{fmt(final.p, 2)}원</p>
-            </div>
+            {final.p !== null && (
+              <div>
+                <p className="text-xs text-muted-foreground">연납 순보험료 P</p>
+                <p className="tabular text-base font-semibold">{fmt(final.p, 2)}원</p>
+              </div>
+            )}
+            {final.g !== null && (
+              <div>
+                <p className="text-xs text-muted-foreground">연납 영업보험료 G</p>
+                <p className="tabular text-base font-semibold">{fmt(final.g, 2)}원</p>
+              </div>
+            )}
             <div className="rounded-lg bg-primary/10 px-3 py-2">
-              <p className="text-xs text-muted-foreground">단수처리 후</p>
-              <p className="tabular text-xl font-bold text-primary">{fmt(final.pRounded ?? 0)}원</p>
+              <p className="text-xs text-muted-foreground">{headlineLabel}</p>
+              <p className="tabular text-xl font-bold text-primary">{fmt(headlineRounded ?? 0)}원</p>
             </div>
           </div>
         )}

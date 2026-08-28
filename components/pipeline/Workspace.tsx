@@ -3,12 +3,13 @@
 import { useMemo, type ComponentType } from "react";
 import Link from "next/link";
 import type { AssetNameOverride, ModuleTypeId } from "@/types/modules";
-import { computeSheet, MODULE_CATALOG, REF_FIELD_LABEL, repairRefs } from "@/lib/engine/pipeline";
+import { computeWorkbook, MODULE_CATALOG, REF_FIELD_LABEL, repairRefs } from "@/lib/engine/pipeline";
 import { useWorkbook, type ProductPreset } from "@/lib/store/workbook";
 import { StepCard } from "./StepCard";
 import { NextStep } from "./NextStep";
 import { ProgressRail } from "./ProgressRail";
 import { ResultPanel } from "./ResultPanel";
+import { SheetTabs } from "./SheetTabs";
 import { AssetNameEditor } from "@/components/assets/AssetNameEditor";
 import type { ModuleFormProps } from "@/components/modules/types";
 import { M01Product } from "@/components/modules/m01-product";
@@ -19,6 +20,7 @@ import { M05Survivors } from "@/components/modules/m05-survivors";
 import { M06Deaths } from "@/components/modules/m06-deaths";
 import { M07Pv } from "@/components/modules/m07-pv";
 import { M08NetPremium } from "@/components/modules/m08-net-premium";
+import { M09Expense } from "@/components/modules/m09-expense";
 
 const FORMS: Partial<Record<ModuleTypeId, ComponentType<ModuleFormProps>>> = {
   M01: M01Product,
@@ -29,19 +31,25 @@ const FORMS: Partial<Record<ModuleTypeId, ComponentType<ModuleFormProps>>> = {
   M06: M06Deaths,
   M07: M07Pv,
   M08: M08NetPremium,
+  M09: M09Expense,
 };
 
 /**
- * 게스트 작업공간 (§3.1, §5.4).
- * 페이지(body) 스크롤 + 좌 진행 레일·우 결과 패널 sticky 고정:
- * 커서가 어디에 있어도 휠로 아래로 이동할 수 있고, 내용을 내려도
- * 진행 단계·결과가 항상 보인다. 레일에서 단계를 선택하면 해당 카드가
- * 화면 중앙에 오도록 스크롤한다.
+ * 게스트 작업공간 (§2.3, §3.1, §5.4).
+ * 시트 탭(공용탭 + 일반 탭) × 3분할: 페이지(body) 스크롤 + 좌 진행 레일·우 결과
+ * 패널 sticky 고정. 공용탭 자산은 모든 일반 탭의 참조 후보에 나타나고,
+ * 공용탭 수정 시 참조 탭 전체가 자동 재계산된다.
  */
 export function Workspace() {
   const {
-    pipeline,
+    sheets,
+    activeSheetId,
     expandedId,
+    setActiveSheet,
+    addSheet,
+    duplicateSheet,
+    removeSheet,
+    renameSheet,
     applyPreset,
     addModule,
     addModuleAt,
@@ -53,7 +61,16 @@ export function Workspace() {
     setExpanded,
     reset,
   } = useWorkbook();
-  const computation = useMemo(() => computeSheet(pipeline), [pipeline]);
+
+  const computations = useMemo(() => computeWorkbook(sheets), [sheets]);
+  const activeSheet = sheets.find((s) => s.id === activeSheetId) ?? sheets[0];
+  const computation = computations[activeSheet.id];
+  const pipeline = activeSheet.pipeline;
+  const sharedSheet = sheets.find((s) => s.sheetType === "shared");
+  const sharedAssets =
+    activeSheet.sheetType === "normal" && sharedSheet
+      ? (computations[sharedSheet.id]?.assets ?? [])
+      : [];
 
   const selectAndCenter = (id: string) => {
     setExpanded(id);
@@ -82,7 +99,6 @@ export function Workspace() {
             onMove={moveModule}
             onInsert={(index, type) => {
               addModuleAt(index, type);
-              // 새 단계 id는 스토어가 expandedId로 잡는다 — 다음 프레임에 중앙 정렬
               setTimeout(() => {
                 const id = useWorkbook.getState().expandedId;
                 if (id) document.getElementById(`step-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -91,14 +107,31 @@ export function Workspace() {
           />
         </aside>
 
-        <main className="min-w-0 flex-1 px-4 py-6">
+        <main className="min-w-0 flex-1 px-4 py-4">
           <div className="mx-auto flex max-w-3xl flex-col gap-3">
+            <SheetTabs
+              sheets={sheets}
+              activeSheetId={activeSheetId}
+              onSelect={setActiveSheet}
+              onAdd={addSheet}
+              onDuplicate={duplicateSheet}
+              onRemove={removeSheet}
+              onRename={renameSheet}
+            />
+
+            {activeSheet.sheetType === "shared" && (
+              <p className="rounded-lg bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+                공용탭 — 여기서 만든 자산(계약조건·위험률·현가율 등)은 모든 탭에서 참조할 수
+                있습니다. 주계약·특약이 공유하는 기초를 두는 곳입니다.
+              </p>
+            )}
+
             {pipeline.length === 0 && (
               <div className="rounded-xl border border-border bg-card px-5 py-8 text-center">
                 <h2 className="text-lg font-bold">산출할 종목을 선택하세요</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
                   종목을 선택하면 표준 산출 플로우의 모든 과정이 한 번에 구성됩니다.
-                  이후 단계 추가·순서 변경·변수 추가·이름 변경으로 자유롭게 변형하세요.
+                  이후 단계 추가·순서 변경·소단계·변수 이름 변경으로 자유롭게 변형하세요.
                 </p>
                 <div className="mt-4 flex flex-wrap justify-center gap-2">
                   {(
@@ -133,9 +166,10 @@ export function Workspace() {
             {pipeline.map((mod, i) => {
               const result =
                 computation.results[mod.id] ?? { status: "idle" as const, assets: [], summary: [] };
-              const upstream = pipeline
-                .slice(0, i)
-                .flatMap((m) => computation.results[m.id]?.assets ?? []);
+              const upstream = [
+                ...sharedAssets,
+                ...pipeline.slice(0, i).flatMap((m) => computation.results[m.id]?.assets ?? []),
+              ];
               const Form = FORMS[mod.type];
               // 이동·삭제·삽입으로 참조 수정이 필요하면 자동 재연결 제안 (§3.9 보강)
               const refPatch = result.status !== "done" ? repairRefs(mod, upstream) : null;
@@ -207,7 +241,13 @@ export function Workspace() {
         </main>
 
         <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-80 shrink-0 overflow-y-auto border-l border-border bg-[var(--background)] px-4 py-4 xl:block">
-          <ResultPanel computation={computation} moduleCount={pipeline.length} onReset={reset} />
+          <ResultPanel
+            computation={computation}
+            moduleCount={pipeline.length}
+            sheetName={activeSheet.name}
+            isShared={activeSheet.sheetType === "shared"}
+            onReset={reset}
+          />
         </aside>
       </div>
     </div>
