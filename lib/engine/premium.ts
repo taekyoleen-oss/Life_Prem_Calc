@@ -65,7 +65,8 @@ export function grossPremiumB(p: number, k: number): number {
   return p / (1 - k);
 }
 
-export type RoundingMode = "round" | "floor" | "ceil";
+export type { RoundingMode } from "@/types/modules";
+import type { RoundingMode } from "@/types/modules";
 
 /**
  * 최종 보험료 단수처리 (M02 옵션). digit = 처리 자릿수(0 = 원 단위, 1 = 십원 단위 …).
