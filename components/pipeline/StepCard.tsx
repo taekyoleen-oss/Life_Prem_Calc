@@ -1,8 +1,9 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { ModuleStatus } from "@/types/modules";
 import type { ModuleResult } from "@/lib/engine/pipeline";
+import type { ModuleHelp } from "@/content/module-help";
 
 /** 모듈 상태 배지 5단계 (§3.1) */
 const STATUS_BADGE: Record<ModuleStatus, { label: string; cls: string }> = {
@@ -26,6 +27,8 @@ export function StepCard({
   canMoveUp,
   canMoveDown,
   anchorId,
+  help,
+  lectureMode,
   children,
 }: {
   index: number;
@@ -40,9 +43,13 @@ export function StepCard({
   canMoveUp: boolean;
   canMoveDown: boolean;
   anchorId: string;
+  help?: ModuleHelp;
+  lectureMode?: boolean;
   children: ReactNode;
 }) {
   const badge = STATUS_BADGE[result.status];
+  const [showHelp, setShowHelp] = useState(false);
+  const helpVisible = help && (lectureMode || (expanded && showHelp));
   const moveBtn = "rounded px-1 py-0.5 text-xs text-muted-foreground hover:bg-secondary disabled:opacity-30 disabled:hover:bg-transparent";
 
   return (
@@ -95,6 +102,16 @@ export function StepCard({
           )}
         </div>
         <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+          {help && (
+            <button
+              type="button"
+              onClick={() => setShowHelp((s) => !s)}
+              className={`rounded-full px-1.5 py-0.5 text-xs ${showHelp ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-secondary"}`}
+              title="교육 설명 보기"
+            >
+              ⓘ
+            </button>
+          )}
           <button type="button" onClick={() => onMove("up")} disabled={!canMoveUp} className={moveBtn} title="위로 이동">
             ▲
           </button>
@@ -112,6 +129,16 @@ export function StepCard({
         </div>
         <span className="text-muted-foreground">{expanded ? "▾" : "▸"}</span>
       </header>
+
+      {helpVisible && (
+        <div className="border-t border-border/60 bg-primary/[0.03] px-4 py-3 text-sm">
+          <p className="leading-relaxed">{help.concept}</p>
+          {help.formula !== "—" && (
+            <p className="mt-1.5 rounded bg-secondary/60 px-2 py-1 font-mono text-xs">{help.formula}</p>
+          )}
+          {help.example && <p className="mt-1 text-xs text-muted-foreground">{help.example}</p>}
+        </div>
+      )}
 
       {expanded && (
         <div className="border-t border-border px-4 py-4">

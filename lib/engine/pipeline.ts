@@ -19,6 +19,9 @@ import type {
   PvTiming,
 } from "@/types/modules";
 import rates from "./seed/dummy-rates.json";
+import { parse } from "@/lib/formula/parser";
+import { evaluate, type FormulaEnv, type FormulaValue } from "@/lib/formula/evaluator";
+import { FormulaError } from "@/lib/formula/tokenizer";
 import { deaths, survivors } from "./decrement";
 import { discountFactors, pvBenefit, pvIncome, pvMaturity } from "./pv";
 import { annualNetPremium, grossPremiumA, grossPremiumB, netSinglePremium, roundPremium } from "./premium";
@@ -53,7 +56,8 @@ export type AssetTag =
   | "pv_series"
   | "pv_in"
   | "pv_out"
-  | "premium";
+  | "premium"
+  | "formula";
 
 export interface ComputedAsset {
   def: AssetDef;
@@ -105,7 +109,7 @@ export const MODULE_CATALOG: Record<
   M07: { label: "현가합", repeatable: true, available: true, desc: "수입·지급 현가와 합계" },
   M08: { label: "순보험료", repeatable: false, available: true, desc: "NSP·연납 P" },
   M09: { label: "사업비·영업보험료", repeatable: false, available: true, desc: "방식 A(3이원)·B(부가율)" },
-  M10: { label: "사용자 수식", repeatable: true, available: false, desc: "P4에서 제공" },
+  M10: { label: "사용자 수식", repeatable: true, available: true, desc: "자산 코드로 자유 수식" },
   M11: { label: "결과 요약", repeatable: false, available: false, desc: "P4에서 제공" },
 };
 
@@ -119,7 +123,8 @@ const NEXT_RECOMMEND: Partial<Record<ModuleTypeId, ModuleTypeId[]>> = {
   M06: ["M07"],
   M07: ["M07", "M08"],
   M08: ["M09"],
-  M09: [],
+  M09: ["M10"],
+  M10: ["M10"],
 };
 
 export function recommendNext(pipeline: ModuleInstance[]): ModuleTypeId[] {
@@ -312,7 +317,34 @@ export function computeSheet(pipeline: ModuleInstance[], seed?: SheetSeed): Shee
         }
         case "M03": {
           const p = mod.params as unknown as M03Params & { libraryKey?: keyof typeof RATE_LIBRARY };
-          // 구버전 단일 선택 호환
+          if ((p.source ?? "library") === "custom") {
+            // 직접 입력(붙여넣기·CSV) — 파싱은 lib/engine/table-io.ts(결정론)
+            if (!p.custom || p.custom.columns.length === 0) {
+              throw new IncompleteError("표를 붙여넣거나 CSV 파일을 불러오세요.");
+            }
+            const selected = p.custom.columns
+              .map((col, idx) => ({ col, idx }))
+              .filter((x) => x.col.selected);
+            if (selected.length === 0) throw new IncompleteError("사용할 열을 1개 이상 선택하세요.");
+            for (const { col, idx } of selected) {
+              const table: RateTable = {
+                startAge: p.custom.startAge,
+                values: col.values,
+                isMortality: col.isMortality,
+              };
+              assets.push(
+                register(ctx, mod, warnings, {
+                  slot: `c${idx}`, code: `q${nextIndex(ctx, "q")}`, displayName: `q_${col.name}`,
+                  kind: "table", value: table, tag: "rate", isMortality: col.isMortality,
+                }),
+              );
+              summary.push(col.name);
+            }
+            const len = p.custom.columns[0]?.values.length ?? 0;
+            summary.push(`직접 입력 · 연령 ${p.custom.startAge}~${p.custom.startAge + len - 1}`);
+            break;
+          }
+          // 공용 라이브러리 (구버전 단일 선택 호환)
           const keys = p.libraryKeys ?? (p.libraryKey ? [p.libraryKey] : []);
           if (keys.length === 0) throw new IncompleteError("위험률을 1개 이상 선택하세요.");
           const NAME = { male: "q_사망_남", female: "q_사망_여", diagnosis: "q_진단" } as const;
@@ -551,6 +583,43 @@ export function computeSheet(pipeline: ModuleInstance[], seed?: SheetSeed): Shee
             p.method === "A" ? `방식 A (α=${fmtPct(p.alpha)}·β=${fmtPct(p.beta)}·γ=${fmtPct(p.gamma)})` : `방식 B (k=${fmtPct(p.loadingK)})`,
             `G = ${fmt(G, 2)}원`,
             `단수처리 후 ${fmt(final.gRounded)}원`,
+          );
+          break;
+        }
+        case "M10": {
+          const p = mod.params as unknown as { expression?: string };
+          if (!p.expression?.trim()) throw new IncompleteError("수식을 입력하세요.");
+          // env: 상류 자산 코드 → 값. 표 자산은 계약 구간(x..x+n-1) 슬라이스 계열로 노출.
+          // 수식은 상류 env만 보므로 자기·하류 참조는 '정의되지 않은 참조'로 차단된다(순환 차단).
+          const env: FormulaEnv = {};
+          for (const a of ctx.order) {
+            if (typeof a.value === "number" || Array.isArray(a.value)) {
+              env[a.def.code] = a.value as FormulaValue;
+            } else if (ctx.contract) {
+              env[a.def.code] = sliceTable(a.value as RateTable, ctx.contract.age, ctx.contract.years);
+            }
+          }
+          if (ctx.contract) {
+            env["t"] = Array.from({ length: ctx.contract.years }, (_, t) => t);
+          }
+          let value: FormulaValue;
+          try {
+            value = evaluate(parse(p.expression), env);
+          } catch (e) {
+            // 문법·참조·길이 오류는 입력 중 인라인 오류 (§3.4)
+            if (e instanceof FormulaError) throw new IncompleteError(e.message);
+            throw e;
+          }
+          const isSeries = Array.isArray(value);
+          assets.push(
+            register(ctx, mod, warnings, {
+              slot: "f", code: `f${nextIndex(ctx, "f")}`, displayName: "수식 결과",
+              kind: isSeries ? "series" : "scalar", value: value as AssetValue, tag: "formula",
+            }),
+          );
+          summary.push(
+            p.expression.length > 36 ? `${p.expression.slice(0, 36)}…` : p.expression,
+            isSeries ? `계열 (${(value as number[]).length}개)` : `= ${fmt(value as number, 4)}`,
           );
           break;
         }

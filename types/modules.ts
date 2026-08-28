@@ -54,13 +54,28 @@ export interface M02Params {
   roundMode: RoundingMode;
 }
 
+/** 사용자 입력(붙여넣기·CSV) 위험률 표의 열 하나 */
+export interface M03CustomColumn {
+  name: string;
+  isMortality: boolean;
+  /** 자산으로 등록할지 여부 (열 선택) */
+  selected: boolean;
+  values: number[];
+}
+
 /**
- * P2는 라이브러리 선택만 지원. 업로드·붙여넣기·컬럼 매핑은 P3(table-io).
- * 복수 선택 → 한 단계에서 계열별 자산을 여러 개 등록한다(단계 내 변수 추가).
+ * 위험률 표: 공용 라이브러리 선택 또는 직접 입력(클립보드 TSV·CSV).
+ * 복수 열 선택 → 한 단계에서 계열별 자산을 여러 개 등록한다(단계 내 변수 추가).
  * (구버전 단일 libraryKey 파라미터도 계산 레이어가 호환 처리한다)
  */
 export interface M03Params {
+  /** 생략 시 "library" (구버전 호환) */
+  source?: "library" | "custom";
   libraryKeys: ("male" | "female" | "diagnosis")[];
+  /** 직접 입력 파싱 결과 (결정론 파서 lib/engine/table-io.ts) */
+  custom?: { startAge: number; columns: M03CustomColumn[] };
+  /** 재편집용 원본 텍스트 */
+  rawText?: string;
 }
 
 /**
@@ -133,6 +148,11 @@ export interface M08Params {
   lAssetId: string | null;
 }
 
+/** M10 사용자 수식 (§3.4): 상류 자산 코드를 변수로 쓰는 엑셀식 수식 */
+export interface M10Params {
+  expression: string;
+}
+
 /** M09 사업비·영업보험료 (§3.2.3): 방식 A(3이원)·B(단순 부가율). 방식 C(수식)는 P4 */
 export interface M09Params {
   method: "A" | "B";
@@ -172,7 +192,7 @@ export interface ModuleParamsMap {
   M07: M07Params;
   M08: M08Params;
   M09: M09Params;
-  M10: Record<string, unknown>;
+  M10: M10Params;
   M11: Record<string, unknown>;
 }
 

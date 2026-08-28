@@ -97,6 +97,8 @@ function defaultParams(
         outgoAssetIds: assets.filter((a) => a.tag === "pv_out").map((a) => a.def.id),
         lAssetId: latestByTag(assets, "survivors"),
       };
+    case "M10":
+      return { expression: "" };
     case "M09":
       return {
         method: "A",
@@ -128,8 +130,9 @@ const mk = (id: string, type: ModuleTypeId, params: Record<string, unknown>): Mo
 /**
  * 종목별 표준 플로우: 모든 과정이 처음부터 완결 상태로 깔린다.
  * 정기 = 사망급부, 생사혼합 = 사망+만기, 순수생존 = 만기(생존)급부만.
+ * (코드 생성 대사 테스트에서도 사용 — export)
  */
-function buildStandardPipeline(kind: ProductPreset): ModuleInstance[] {
+export function buildStandardPipeline(kind: ProductPreset): ModuleInstance[] {
   const m1 = uid(), m2 = uid(), m3 = uid(), m4 = uid(), m5 = uid();
   const m6 = uid(), m7in = uid(), m7d = uid(), m7m = uid(), m8 = uid();
   const q = `${m3}:q_male`, v = `${m4}:v`, l = `${m5}:l`, d = `${m6}:d`;

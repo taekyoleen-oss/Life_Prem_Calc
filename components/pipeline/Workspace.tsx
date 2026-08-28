@@ -1,10 +1,14 @@
 "use client";
 
-import { useMemo, type ComponentType } from "react";
+import { useMemo, useState, type ComponentType } from "react";
 import Link from "next/link";
 import type { AssetNameOverride, ModuleTypeId } from "@/types/modules";
 import { computeWorkbook, MODULE_CATALOG, REF_FIELD_LABEL, repairRefs } from "@/lib/engine/pipeline";
+import { buildCodegenInput, generatePython, generatePythonModule } from "@/lib/codegen/python";
+import { generateVba } from "@/lib/codegen/vba";
+import { MODULE_HELP } from "@/content/module-help";
 import { useWorkbook, type ProductPreset } from "@/lib/store/workbook";
+import { CodePanel } from "@/components/codegen/CodePanel";
 import { StepCard } from "./StepCard";
 import { NextStep } from "./NextStep";
 import { ProgressRail } from "./ProgressRail";
@@ -21,6 +25,7 @@ import { M06Deaths } from "@/components/modules/m06-deaths";
 import { M07Pv } from "@/components/modules/m07-pv";
 import { M08NetPremium } from "@/components/modules/m08-net-premium";
 import { M09Expense } from "@/components/modules/m09-expense";
+import { M10Formula } from "@/components/modules/m10-formula";
 
 const FORMS: Partial<Record<ModuleTypeId, ComponentType<ModuleFormProps>>> = {
   M01: M01Product,
@@ -32,7 +37,17 @@ const FORMS: Partial<Record<ModuleTypeId, ComponentType<ModuleFormProps>>> = {
   M07: M07Pv,
   M08: M08NetPremium,
   M09: M09Expense,
+  M10: M10Formula,
 };
+
+function download(filename: string, text: string, mime: string) {
+  const a = document.createElement("a");
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 /**
  * 게스트 작업공간 (§2.3, §3.1, §5.4).
@@ -62,6 +77,7 @@ export function Workspace() {
     reset,
   } = useWorkbook();
 
+  const [lectureMode, setLectureMode] = useState(false);
   const computations = useMemo(() => computeWorkbook(sheets), [sheets]);
   const activeSheet = sheets.find((s) => s.id === activeSheetId) ?? sheets[0];
   const computation = computations[activeSheet.id];
@@ -71,6 +87,25 @@ export function Workspace() {
     activeSheet.sheetType === "normal" && sharedSheet
       ? (computations[sharedSheet.id]?.assets ?? [])
       : [];
+  const codegenInput = useMemo(
+    () =>
+      buildCodegenInput(
+        activeSheet,
+        activeSheet.sheetType === "normal" ? (sharedSheet ?? null) : null,
+        computation,
+        sharedSheet ? (computations[sharedSheet.id] ?? null) : null,
+      ),
+    [activeSheet, sharedSheet, computation, computations],
+  );
+
+  const exportCode = (kind: "py" | "bas") => {
+    try {
+      const text = kind === "py" ? generatePython(codegenInput) : generateVba(codegenInput);
+      download(`premiaflow_${activeSheet.name}.${kind}`, text, "text/plain");
+    } catch (e) {
+      window.alert(`코드 생성 실패: ${e instanceof Error ? e.message : e}`);
+    }
+  };
 
   const selectAndCenter = (id: string) => {
     setExpanded(id);
@@ -87,6 +122,36 @@ export function Workspace() {
           PremiaFlow
         </Link>
         <span className="text-sm text-muted-foreground">게스트 워크북 · 보험료 산출 파이프라인</span>
+        <span className="ml-auto flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setLectureMode((v) => !v)}
+            className={`rounded-md border px-2.5 py-1 text-xs font-medium ${
+              lectureMode
+                ? "border-[var(--primary)] bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:bg-secondary"
+            }`}
+            title="모든 단계의 교육 설명을 펼쳐 표시"
+          >
+            강의 모드 {lectureMode ? "ON" : "OFF"}
+          </button>
+          <button
+            type="button"
+            onClick={() => exportCode("py")}
+            className="rounded-md border border-border px-2.5 py-1 font-mono text-xs text-muted-foreground hover:bg-secondary"
+            title="현재 탭 전체 Python 스크립트 (.py)"
+          >
+            .py
+          </button>
+          <button
+            type="button"
+            onClick={() => exportCode("bas")}
+            className="rounded-md border border-border px-2.5 py-1 font-mono text-xs text-muted-foreground hover:bg-secondary"
+            title="현재 탭 전체 VBA 모듈 (.bas)"
+          >
+            .bas
+          </button>
+        </span>
       </header>
 
       <div className="flex items-start">
@@ -188,6 +253,8 @@ export function Workspace() {
                   onMove={(dir) => moveModule(mod.id, dir)}
                   canMoveUp={i > 0}
                   canMoveDown={i < pipeline.length - 1}
+                  help={MODULE_HELP[mod.type]}
+                  lectureMode={lectureMode}
                 >
                   {Form ? (
                     <>
@@ -228,6 +295,17 @@ export function Workspace() {
                           });
                         }}
                       />
+                      {result.status === "done" && (
+                        <CodePanel
+                          snippet={(() => {
+                            try {
+                              return generatePythonModule(codegenInput, mod.id);
+                            } catch (e) {
+                              return `# 코드 생성 실패: ${e instanceof Error ? e.message : e}`;
+                            }
+                          })()}
+                        />
+                      )}
                     </>
                   ) : (
                     <p className="text-sm text-muted-foreground">이후 페이즈에서 제공됩니다.</p>
