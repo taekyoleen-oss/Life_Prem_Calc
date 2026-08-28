@@ -33,9 +33,10 @@ const FORMS: Partial<Record<ModuleTypeId, ComponentType<ModuleFormProps>>> = {
 
 /**
  * 게스트 작업공간 (§3.1, §5.4).
- * 3분할 고정 레이아웃: 좌 진행 레일·중앙 스텝 카드·우 결과 패널이 각각
- * 독립 스크롤되어, 내용을 내려도 진행 단계가 항상 보인다.
- * 레일에서 단계를 선택하면 해당 카드가 화면 중앙에 오도록 스크롤한다.
+ * 페이지(body) 스크롤 + 좌 진행 레일·우 결과 패널 sticky 고정:
+ * 커서가 어디에 있어도 휠로 아래로 이동할 수 있고, 내용을 내려도
+ * 진행 단계·결과가 항상 보인다. 레일에서 단계를 선택하면 해당 카드가
+ * 화면 중앙에 오도록 스크롤한다.
  */
 export function Workspace() {
   const {
@@ -61,18 +62,16 @@ export function Workspace() {
   };
 
   return (
-    <div className="flex h-screen flex-col">
-      <header className="shrink-0 border-b border-border bg-card">
-        <div className="flex items-center gap-3 px-4 py-3">
-          <Link href="/" className="text-lg font-bold text-primary">
-            PremiaFlow
-          </Link>
-          <span className="text-sm text-muted-foreground">게스트 워크북 · 보험료 산출 파이프라인</span>
-        </div>
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-border bg-card px-4">
+        <Link href="/" className="text-lg font-bold text-primary">
+          PremiaFlow
+        </Link>
+        <span className="text-sm text-muted-foreground">게스트 워크북 · 보험료 산출 파이프라인</span>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="hidden w-60 shrink-0 overflow-y-auto border-r border-border bg-card px-3 py-4 md:block">
+      <div className="flex items-start">
+        <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-60 shrink-0 overflow-y-auto border-r border-border bg-card px-3 py-4 md:block">
           <ProgressRail
             pipeline={pipeline}
             computation={computation}
@@ -89,7 +88,7 @@ export function Workspace() {
           />
         </aside>
 
-        <main className="min-w-0 flex-1 overflow-y-auto px-4 py-6">
+        <main className="min-w-0 flex-1 px-4 py-6">
           <div className="mx-auto flex max-w-3xl flex-col gap-3">
             {pipeline.length === 0 && (
               <div className="rounded-xl border border-border bg-card px-5 py-8 text-center">
@@ -155,7 +154,7 @@ export function Workspace() {
           </div>
         </main>
 
-        <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-border bg-[var(--background)] px-4 py-4 xl:block">
+        <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-80 shrink-0 overflow-y-auto border-l border-border bg-[var(--background)] px-4 py-4 xl:block">
           <ResultPanel computation={computation} moduleCount={pipeline.length} onReset={reset} />
         </aside>
       </div>
