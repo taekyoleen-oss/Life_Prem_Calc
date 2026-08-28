@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+/* 디자인 토큰(설계서 §5.1): 중립 라이트 에디토리얼 + Sky Blue 포인트. 라이트 단일 테마. */
+:root {
+  --background: #fbfaf8; /* 웜 화이트 */
+  --foreground: #1f2933;
+  --card: #ffffff;
+  --card-foreground: #1f2933;
+  --popover: #ffffff;
+  --popover-foreground: #1f2933;
+  --primary: #4a90c2; /* tkLeen 시그니처 Sky Blue */
+  --primary-foreground: #ffffff;
+  --secondary: #f1f0ec;
+  --secondary-foreground: #1f2933;
+  --muted: #f1f0ec;
+  --muted-foreground: #6b7280;
+  --accent: #e6f2ea; /* 완료 상태용 그린 틴트 */
+  --accent-foreground: #1e6b45;
+  --success: #2f9e63;
+  --warning: #d97706;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #e6e4de;
+  --input: #e6e4de;
+  --ring: #4a90c2;
+  --radius: 0.5rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI",
+    "Malgun Gothic", sans-serif;
+  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace,
+    Consolas, monospace;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+/* 숫자·표는 자릿수 정렬(§5.1) */
+table,
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
