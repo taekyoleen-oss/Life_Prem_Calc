@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { M02Params, ModuleInstance, ModuleTypeId } from "@/types/modules";
-import { computeSheet, type AssetTag, type ComputedAsset } from "@/lib/engine/pipeline";
+import { computeSheet, repairRefs, type AssetTag, type ComputedAsset } from "@/lib/engine/pipeline";
 
 /**
  * 게스트 워크북 스토어 (P2: 인메모리 단일 시트).
@@ -35,7 +35,7 @@ function defaultParams(
       };
     case "M03":
       // 성별 자동 적용 (§3.2 M03)
-      return { libraryKey: contract?.sex === "female" ? "female" : "male" };
+      return { libraryKeys: [contract?.sex === "female" ? "female" : "male"] };
     case "M04":
       return { i: 0.025, extraTimings: [] };
     case "M05": {
@@ -73,14 +73,78 @@ function defaultParams(
   }
 }
 
+/** 종목(대표 상품 유형): 표준 산출 플로우 프리셋 */
+export type ProductPreset = "term" | "endowment" | "pure";
+
+const mk = (id: string, type: ModuleTypeId, params: Record<string, unknown>): ModuleInstance => ({
+  id,
+  type,
+  params,
+  refs: [],
+  outputs: [],
+});
+
+/**
+ * 종목별 표준 플로우: 모든 과정이 처음부터 완결 상태로 깔린다.
+ * 정기 = 사망급부, 생사혼합 = 사망+만기, 순수생존 = 만기(생존)급부만.
+ */
+function buildStandardPipeline(kind: ProductPreset): ModuleInstance[] {
+  const m1 = uid(), m2 = uid(), m3 = uid(), m4 = uid(), m5 = uid();
+  const m6 = uid(), m7in = uid(), m7d = uid(), m7m = uid(), m8 = uid();
+  const q = `${m3}:q_male`, v = `${m4}:v`, l = `${m5}:l`, d = `${m6}:d`;
+  const productName = { term: "정기보험", endowment: "생사혼합보험", pure: "순수생존보험" }[kind];
+  const hasDeath = kind !== "pure";
+  const hasMaturity = kind !== "term";
+
+  return [
+    mk(m1, "M01", { productName, productType: kind, memo: "" }),
+    mk(m2, "M02", {
+      age: 40, sex: "male", years: 20, payYears: 20,
+      sumAssured: 100_000_000, roundDigit: 0, roundMode: "round",
+    }),
+    mk(m3, "M03", { libraryKeys: ["male"] }),
+    mk(m4, "M04", { i: 0.025, extraTimings: [] }),
+    mk(m5, "M05", { qAssetIds: [q], l0: 100_000, combine: "single", usage: "survivors" }),
+    ...(hasDeath ? [mk(m6, "M06", { lAssetId: l, qAssetId: q })] : []),
+    mk(m7in, "M07", {
+      kind: "income", timing: "begin", seriesAssetId: l, vAssetId: v,
+      amountMode: "S", customAmount: 0,
+    }),
+    ...(hasDeath
+      ? [mk(m7d, "M07", {
+          kind: "death", timing: "end", seriesAssetId: d, vAssetId: v,
+          amountMode: "S", customAmount: 0,
+        })]
+      : []),
+    ...(hasMaturity
+      ? [mk(m7m, "M07", {
+          kind: "maturity", timing: "end", seriesAssetId: l, vAssetId: v,
+          amountMode: "S", customAmount: 0,
+        })]
+      : []),
+    mk(m8, "M08", {
+      incomeAssetIds: [`${m7in}:total`],
+      outgoAssetIds: [
+        ...(hasDeath ? [`${m7d}:total`] : []),
+        ...(hasMaturity ? [`${m7m}:total`] : []),
+      ],
+      lAssetId: l,
+    }),
+  ];
+}
+
 interface WorkbookStore {
   pipeline: ModuleInstance[];
   expandedId: string | null;
+  /** 종목 선택 → 표준 플로우 전체 구성 (빈 워크북에서) */
+  applyPreset: (kind: ProductPreset) => void;
   /** 끝에 추가 */
   addModule: (type: ModuleTypeId) => void;
   /** index 위치에 삽입 (0 = 맨 앞) */
   addModuleAt: (index: number, type: ModuleTypeId) => void;
   moveModule: (id: string, dir: "up" | "down") => void;
+  /** 깨진·빈 참조를 상류 자산으로 자동 재연결 */
+  reconnectRefs: (id: string) => void;
   updateParams: (id: string, patch: Record<string, unknown>) => void;
   updateTitle: (id: string, title: string) => void;
   removeModule: (id: string) => void;
@@ -91,6 +155,11 @@ interface WorkbookStore {
 export const useWorkbook = create<WorkbookStore>((set, get) => ({
   pipeline: [],
   expandedId: null,
+
+  applyPreset: (kind) => {
+    const pipeline = buildStandardPipeline(kind);
+    set({ pipeline, expandedId: pipeline[0].id });
+  },
 
   addModule: (type) => get().addModuleAt(get().pipeline.length, type),
 
@@ -118,6 +187,15 @@ export const useWorkbook = create<WorkbookStore>((set, get) => ({
       [next[i], next[j]] = [next[j], next[i]];
       return { ...s, pipeline: next };
     }),
+
+  reconnectRefs: (id) => {
+    const { pipeline } = get();
+    const i = pipeline.findIndex((m) => m.id === id);
+    if (i < 0) return;
+    const comp = computeSheet(pipeline.slice(0, i));
+    const patch = repairRefs(pipeline[i], comp.assets);
+    if (patch) get().updateParams(id, patch);
+  },
 
   updateParams: (id, patch) =>
     set((s) => ({

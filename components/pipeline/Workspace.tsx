@@ -3,8 +3,8 @@
 import { useMemo, type ComponentType } from "react";
 import Link from "next/link";
 import type { AssetNameOverride, ModuleTypeId } from "@/types/modules";
-import { computeSheet, MODULE_CATALOG } from "@/lib/engine/pipeline";
-import { useWorkbook } from "@/lib/store/workbook";
+import { computeSheet, MODULE_CATALOG, REF_FIELD_LABEL, repairRefs } from "@/lib/engine/pipeline";
+import { useWorkbook, type ProductPreset } from "@/lib/store/workbook";
 import { StepCard } from "./StepCard";
 import { NextStep } from "./NextStep";
 import { ProgressRail } from "./ProgressRail";
@@ -42,9 +42,11 @@ export function Workspace() {
   const {
     pipeline,
     expandedId,
+    applyPreset,
     addModule,
     addModuleAt,
     moveModule,
+    reconnectRefs,
     updateParams,
     updateTitle,
     removeModule,
@@ -77,6 +79,7 @@ export function Workspace() {
             computation={computation}
             expandedId={expandedId}
             onSelect={selectAndCenter}
+            onMove={moveModule}
             onInsert={(index, type) => {
               addModuleAt(index, type);
               // 새 단계 id는 스토어가 expandedId로 잡는다 — 다음 프레임에 중앙 정렬
@@ -92,11 +95,38 @@ export function Workspace() {
           <div className="mx-auto flex max-w-3xl flex-col gap-3">
             {pipeline.length === 0 && (
               <div className="rounded-xl border border-border bg-card px-5 py-8 text-center">
-                <h2 className="text-lg font-bold">보험료 산출을 시작하세요</h2>
+                <h2 className="text-lg font-bold">산출할 종목을 선택하세요</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  상품 기본정보부터 순보험료까지, 엑셀 검증표와 같은 흐름으로 단계를 쌓아갑니다.
-                  단계 순서 변경·중간 삽입·변수 이름 지정이 모두 가능합니다.
+                  종목을 선택하면 표준 산출 플로우의 모든 과정이 한 번에 구성됩니다.
+                  이후 단계 추가·순서 변경·변수 추가·이름 변경으로 자유롭게 변형하세요.
                 </p>
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  {(
+                    [
+                      { kind: "term", label: "정기보험", desc: "사망급부" },
+                      { kind: "endowment", label: "생사혼합", desc: "사망 + 만기급부" },
+                      { kind: "pure", label: "순수생존", desc: "만기(생존)급부" },
+                    ] as { kind: ProductPreset; label: string; desc: string }[]
+                  ).map((o) => (
+                    <button
+                      key={o.kind}
+                      type="button"
+                      onClick={() => applyPreset(o.kind)}
+                      className="rounded-lg border border-[var(--primary)] px-4 py-2.5 text-sm font-semibold text-primary hover:bg-primary hover:text-primary-foreground"
+                    >
+                      {o.label}
+                      <span className="block text-[11px] font-normal opacity-80">{o.desc}</span>
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => addModule("M01")}
+                    className="rounded-lg border border-border px-4 py-2.5 text-sm font-semibold text-muted-foreground hover:bg-secondary"
+                  >
+                    직접 구성
+                    <span className="block text-[11px] font-normal opacity-80">빈 파이프라인에서 시작</span>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -107,6 +137,8 @@ export function Workspace() {
                 .slice(0, i)
                 .flatMap((m) => computation.results[m.id]?.assets ?? []);
               const Form = FORMS[mod.type];
+              // 이동·삭제·삽입으로 참조 수정이 필요하면 자동 재연결 제안 (§3.9 보강)
+              const refPatch = result.status !== "done" ? repairRefs(mod, upstream) : null;
               return (
                 <StepCard
                   key={mod.id}
@@ -125,6 +157,26 @@ export function Workspace() {
                 >
                   {Form ? (
                     <>
+                      {refPatch && (
+                        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-[var(--primary)]/40 bg-primary/5 px-3 py-2 text-sm">
+                          <span>
+                            참조 수정이 필요합니다:{" "}
+                            {Object.keys(refPatch)
+                              .map((f) => REF_FIELD_LABEL[f] ?? f)
+                              .join(", ")}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => reconnectRefs(mod.id)}
+                            className="rounded-md bg-primary px-2.5 py-1 text-xs font-semibold text-primary-foreground hover:opacity-90"
+                          >
+                            상류 자산으로 자동 재연결
+                          </button>
+                          <span className="text-xs text-muted-foreground">
+                            또는 아래에서 직접 선택하세요.
+                          </span>
+                        </div>
+                      )}
                       <Form
                         mod={mod}
                         result={result}

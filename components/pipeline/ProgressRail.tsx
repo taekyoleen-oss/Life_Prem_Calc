@@ -70,12 +70,14 @@ export function ProgressRail({
   expandedId,
   onSelect,
   onInsert,
+  onMove,
 }: {
   pipeline: ModuleInstance[];
   computation: SheetComputation;
   expandedId: string | null;
   onSelect: (id: string) => void;
   onInsert: (index: number, type: ModuleTypeId) => void;
+  onMove: (id: string, dir: "up" | "down") => void;
 }) {
   const [insertAt, setInsertAt] = useState<number | null>(null);
 
@@ -90,17 +92,20 @@ export function ProgressRail({
         onClose={() => setInsertAt(null)}
       />
     ) : (
-      <div className="group flex h-3 items-center justify-center">
+      <div className="flex h-4 items-center justify-center">
         <button
           type="button"
           onClick={() => setInsertAt(index)}
           title="이 위치에 단계 삽입"
-          className="hidden h-4 w-full items-center justify-center rounded text-[10px] leading-none text-primary hover:bg-primary/10 group-hover:flex"
+          className="flex h-4 w-full items-center justify-center rounded text-[10px] leading-none text-primary/35 hover:bg-primary/10 hover:text-primary"
         >
-          ＋ 여기에 삽입
+          ＋
         </button>
       </div>
     );
+
+  const moveBtn =
+    "rounded px-0.5 text-[10px] leading-4 text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-25 disabled:hover:bg-transparent";
 
   return (
     <nav className="flex flex-col">
@@ -116,17 +121,29 @@ export function ProgressRail({
         return (
           <div key={mod.id}>
             {gap(i)}
-            <button
-              type="button"
-              onClick={() => onSelect(mod.id)}
-              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm ${
+            <div
+              className={`group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm ${
                 selected ? "bg-primary/10 font-semibold text-primary" : "hover:bg-secondary"
               }`}
             >
-              <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[r?.status ?? "idle"]}`} />
-              <span className="text-xs text-muted-foreground">{i + 1}</span>
-              <span className="truncate">{mod.title ?? MODULE_CATALOG[mod.type].label}</span>
-            </button>
+              <button
+                type="button"
+                onClick={() => onSelect(mod.id)}
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+              >
+                <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[r?.status ?? "idle"]}`} />
+                <span className="text-xs text-muted-foreground">{i + 1}</span>
+                <span className="truncate">{mod.title ?? MODULE_CATALOG[mod.type].label}</span>
+              </button>
+              <span className="hidden shrink-0 group-hover:flex">
+                <button type="button" title="위로 이동" disabled={i === 0} onClick={() => onMove(mod.id, "up")} className={moveBtn}>
+                  ▲
+                </button>
+                <button type="button" title="아래로 이동" disabled={i === pipeline.length - 1} onClick={() => onMove(mod.id, "down")} className={moveBtn}>
+                  ▼
+                </button>
+              </span>
+            </div>
           </div>
         );
       })}

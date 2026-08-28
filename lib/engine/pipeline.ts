@@ -287,18 +287,23 @@ export function computeSheet(pipeline: ModuleInstance[]): SheetComputation {
           break;
         }
         case "M03": {
-          const p = mod.params as unknown as M03Params;
-          const lib = RATE_LIBRARY[p.libraryKey];
-          if (!lib) throw new IncompleteError("위험률을 선택하세요.");
-          const table: RateTable = { startAge: 0, values: lib.values as number[], isMortality: lib.isMortality };
-          const name = { male: "q_사망_남", female: "q_사망_여", diagnosis: "q_진단" }[p.libraryKey];
-          assets.push(
-            register(ctx, mod, warnings, {
-              slot: "q", code: `q${nextIndex(ctx, "q")}`, displayName: name,
-              kind: "table", value: table, tag: "rate", isMortality: lib.isMortality,
-            }),
-          );
-          summary.push(lib.label, lib.isMortality ? "사망률" : "발생률");
+          const p = mod.params as unknown as M03Params & { libraryKey?: keyof typeof RATE_LIBRARY };
+          // 구버전 단일 선택 호환
+          const keys = p.libraryKeys ?? (p.libraryKey ? [p.libraryKey] : []);
+          if (keys.length === 0) throw new IncompleteError("위험률을 1개 이상 선택하세요.");
+          const NAME = { male: "q_사망_남", female: "q_사망_여", diagnosis: "q_진단" } as const;
+          for (const key of keys) {
+            const lib = RATE_LIBRARY[key];
+            if (!lib) throw new Error(`알 수 없는 라이브러리 항목입니다: ${key}`);
+            const table: RateTable = { startAge: 0, values: lib.values as number[], isMortality: lib.isMortality };
+            assets.push(
+              register(ctx, mod, warnings, {
+                slot: `q_${key}`, code: `q${nextIndex(ctx, "q")}`, displayName: NAME[key],
+                kind: "table", value: table, tag: "rate", isMortality: lib.isMortality,
+              }),
+            );
+            summary.push(lib.label);
+          }
           break;
         }
         case "M04": {
@@ -483,4 +488,85 @@ export function computeSheet(pipeline: ModuleInstance[]): SheetComputation {
   const byId: Record<string, ComputedAsset> = {};
   for (const a of ctx.order) byId[a.def.id] = a;
   return { results, assets: ctx.order, byId, contract: ctx.contract, final };
+}
+
+// ── 참조 자동 재연결 (§3.9 보강) ─────────────────────────────────
+// 단계 이동·삭제·삽입으로 참조가 깨지거나 비어 있을 때, 상류 자산에서
+// 의미 태그가 맞는 후보로 재연결하는 패치를 제안한다.
+
+interface RefFieldSpec {
+  field: string;
+  many?: boolean;
+  /** many에서 유효 참조가 하나도 없을 때: true = 후보 전부, false = 최신 1개 */
+  fillAll?: boolean;
+  tags: (params: Record<string, unknown>) => AssetTag[];
+}
+
+const REF_FIELDS: Partial<Record<ModuleTypeId, RefFieldSpec[]>> = {
+  M05: [{ field: "qAssetIds", many: true, tags: () => ["rate"] }],
+  M06: [
+    { field: "lAssetId", tags: () => ["survivors", "payers"] },
+    { field: "qAssetId", tags: () => ["rate"] },
+  ],
+  M07: [
+    { field: "seriesAssetId", tags: (p) => (p.kind === "death" ? ["deaths"] : ["survivors", "payers"]) },
+    { field: "vAssetId", tags: () => ["discount"] },
+  ],
+  M08: [
+    { field: "incomeAssetIds", many: true, fillAll: true, tags: () => ["pv_in"] },
+    { field: "outgoAssetIds", many: true, fillAll: true, tags: () => ["pv_out"] },
+    { field: "lAssetId", tags: () => ["survivors"] },
+  ],
+};
+
+export const REF_FIELD_LABEL: Record<string, string> = {
+  qAssetIds: "탈퇴원인 q",
+  lAssetId: "l 계열",
+  qAssetId: "q 계열",
+  seriesAssetId: "대상 계열",
+  vAssetId: "현가율 v",
+  incomeAssetIds: "수입현가",
+  outgoAssetIds: "지급현가",
+};
+
+/**
+ * 깨졌거나 비어 있는 참조를 상류 자산으로 재연결하는 params 패치.
+ * 바꿀 것이 없으면 null. 유효한 기존 참조는 절대 바꾸지 않는다.
+ */
+export function repairRefs(
+  mod: ModuleInstance,
+  upstream: ComputedAsset[],
+): Record<string, unknown> | null {
+  const specs = REF_FIELDS[mod.type];
+  if (!specs) return null;
+  const ids = new Set(upstream.map((a) => a.def.id));
+  const byTag = (tags: AssetTag[]) => upstream.filter((a) => tags.includes(a.tag));
+  const patch: Record<string, unknown> = {};
+
+  for (const s of specs) {
+    const tags = s.tags(mod.params);
+    if (s.many) {
+      const cur = (mod.params[s.field] ?? []) as string[];
+      const kept = cur.filter((x) => ids.has(x));
+      let next = kept;
+      if (kept.length === 0) {
+        const cands = byTag(tags);
+        next = s.fillAll
+          ? cands.map((a) => a.def.id)
+          : cands.length > 0
+            ? [cands[cands.length - 1].def.id]
+            : [];
+      }
+      if (next.length !== cur.length || next.some((x, i) => x !== cur[i])) {
+        patch[s.field] = next;
+      }
+    } else {
+      const cur = (mod.params[s.field] ?? null) as string | null;
+      if (cur && ids.has(cur)) continue;
+      const cands = byTag(tags);
+      const next = cands.length > 0 ? cands[cands.length - 1].def.id : null;
+      if (next !== cur) patch[s.field] = next;
+    }
+  }
+  return Object.keys(patch).length > 0 ? patch : null;
 }

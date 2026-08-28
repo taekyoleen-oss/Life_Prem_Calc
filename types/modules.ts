@@ -54,9 +54,13 @@ export interface M02Params {
   roundMode: RoundingMode;
 }
 
-/** P2는 라이브러리 선택만 지원. 업로드·붙여넣기·컬럼 매핑은 P3(table-io) */
+/**
+ * P2는 라이브러리 선택만 지원. 업로드·붙여넣기·컬럼 매핑은 P3(table-io).
+ * 복수 선택 → 한 단계에서 계열별 자산을 여러 개 등록한다(단계 내 변수 추가).
+ * (구버전 단일 libraryKey 파라미터도 계산 레이어가 호환 처리한다)
+ */
 export interface M03Params {
-  libraryKey: "male" | "female" | "diagnosis";
+  libraryKeys: ("male" | "female" | "diagnosis")[];
 }
 
 export interface M04Params {
