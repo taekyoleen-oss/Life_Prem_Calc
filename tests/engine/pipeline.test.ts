@@ -123,6 +123,66 @@ describe("computeSheet: 실패 처리 (§3.9)", () => {
   });
 });
 
+describe("computeSheet: M04 추가 시점 계열 (한국형 유연성)", () => {
+  it("연중 v^{t+1/2}·연말 v^{t+1} 계열이 자산으로 등록된다", () => {
+    const pipeline = base();
+    pipeline[3] = mk("m4", "M04", { i: 0.025, extraTimings: ["mid", "end"] });
+    const c = computeSheet(pipeline);
+    const vp = expected.G1.vp;
+    const v = vp[1];
+    const sqv = Math.sqrt(v);
+    expect(c.byId["m4:v"].value).toEqual(vp);
+    expect(c.byId["m4:v_mid"].value).toEqual(vp.map((x) => x * sqv));
+    expect(c.byId["m4:v_end"].value).toEqual(vp.map((x) => x * v));
+    expect(c.byId["m4:v_mid"].def.code).toBe("v1_mid");
+    // 추가 계열이 있어도 G1 최종값은 불변
+    expect(c.final.p).toBe(expected.G1.P);
+  });
+});
+
+describe("computeSheet: 출력 변수 이름 지정 (§3.3)", () => {
+  it("표시명·코드 오버라이드가 반영되고 하류 참조는 ID로 유지된다", () => {
+    const pipeline = base();
+    pipeline[4].params = {
+      ...pipeline[4].params,
+      assetNames: { l: { code: "l_main", displayName: "l_주계약" } },
+    };
+    const c = computeSheet(pipeline);
+    expect(c.byId["m5:l"].def.code).toBe("l_main");
+    expect(c.byId["m5:l"].def.displayName).toBe("l_주계약");
+    expect(c.results["m6"].status).toBe("done"); // ID 참조라 이름이 바뀌어도 유지
+    expect(c.final.p).toBe(expected.G1.P);
+  });
+
+  it("중복·규칙 위반 코드는 경고 후 기본 코드로 폴백 (계산은 계속)", () => {
+    const pipeline = base();
+    pipeline[5].params = {
+      ...pipeline[5].params,
+      assetNames: { d: { code: "q1" } }, // m3의 q1과 중복
+    };
+    const c = computeSheet(pipeline);
+    expect(c.results["m6"].status).toBe("done");
+    expect(c.results["m6"].warning).toContain("이미 사용 중");
+    expect(c.byId["m6:d"].def.code).toBe("d1");
+
+    pipeline[5].params = { ...pipeline[5].params, assetNames: { d: { code: "D메인" } } };
+    const c2 = computeSheet(pipeline);
+    expect(c2.results["m6"].warning).toContain("규칙");
+    expect(c2.byId["m6:d"].def.code).toBe("d1");
+  });
+
+  it("자동 명명은 사용자 지정 코드가 선점한 번호를 건너뛴다", () => {
+    const pipeline = base();
+    // m3의 q를 'q1'으로… 대신 두 번째 M03가 자동으로 q1을 피하는지: m3에 q2를 강제 지정
+    pipeline[2].params = { ...pipeline[2].params, assetNames: { q: { code: "q2" } } };
+    pipeline.splice(3, 0, mk("m3b", "M03", { libraryKey: "female" }));
+    const c = computeSheet(pipeline);
+    expect(c.byId["m3:q"].def.code).toBe("q2");
+    expect(c.byId["m3b:q"].def.code).toBe("q1");
+    for (const r of Object.values(c.results)) expect(r.status).toBe("done");
+  });
+});
+
 describe("recommendNext (§3.1)", () => {
   it("빈 파이프라인 → M01, 위험률 다음 → 이자율", () => {
     expect(recommendNext([])).toEqual(["M01"]);

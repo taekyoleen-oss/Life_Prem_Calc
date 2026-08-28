@@ -62,6 +62,11 @@ export interface M03Params {
 export interface M04Params {
   /** 예정이율 (소수, 예: 0.025) */
   i: number;
+  /**
+   * 기본 v^t(연시) 외에 추가로 등록할 시점 이동 계열 (한국형 유연성).
+   * "mid" → v^{t+1/2}, "end" → v^{t+1}. M10 수식·직접 참조용.
+   */
+  extraTimings: PvTiming[];
 }
 
 export interface M05Params {
@@ -101,6 +106,16 @@ export interface M08Params {
   outgoAssetIds: string[];
   /** NSP의 기준 생존자수 계열(l_x = 계열 첫 값) */
   lAssetId: string | null;
+}
+
+/**
+ * 출력 자산 이름 사용자 지정 (§3.3 표시명·코드 분리).
+ * 모든 모듈 params에 `assetNames: Record<slot, AssetNameOverride>`로 선택 포함된다.
+ * 코드는 ASSET_CODE_RE를 지켜야 하며 시트 내 유일해야 한다.
+ */
+export interface AssetNameOverride {
+  code?: string;
+  displayName?: string;
 }
 
 /** M09~M11은 해당 페이즈(P3·P4)에서 확정 */

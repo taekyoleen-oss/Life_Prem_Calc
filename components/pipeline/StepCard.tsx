@@ -15,26 +15,36 @@ const STATUS_BADGE: Record<ModuleStatus, { label: string; cls: string }> = {
 
 export function StepCard({
   index,
-  moduleLabel,
+  title,
+  onTitleChange,
   typeId,
   result,
   expanded,
   onToggle,
   onRemove,
+  onMove,
+  canMoveUp,
+  canMoveDown,
   anchorId,
   children,
 }: {
   index: number;
-  moduleLabel: string;
+  title: string;
+  onTitleChange: (title: string) => void;
   typeId: string;
   result: ModuleResult;
   expanded: boolean;
   onToggle: () => void;
   onRemove: () => void;
+  onMove: (dir: "up" | "down") => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
   anchorId: string;
   children: ReactNode;
 }) {
   const badge = STATUS_BADGE[result.status];
+  const moveBtn = "rounded px-1 py-0.5 text-xs text-muted-foreground hover:bg-secondary disabled:opacity-30 disabled:hover:bg-transparent";
+
   return (
     <section
       id={anchorId}
@@ -42,10 +52,7 @@ export function StepCard({
         expanded ? "border-[var(--primary)]" : "border-border"
       }`}
     >
-      <header
-        className="flex cursor-pointer items-center gap-3 px-4 py-3"
-        onClick={onToggle}
-      >
+      <header className="flex cursor-pointer items-center gap-3 px-4 py-3" onClick={onToggle}>
         <span
           className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
             result.status === "done"
@@ -58,7 +65,18 @@ export function StepCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-mono text-muted-foreground">{typeId}</span>
-            <h3 className="text-sm font-semibold">{moduleLabel}</h3>
+            {expanded ? (
+              <input
+                type="text"
+                value={title}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => onTitleChange(e.target.value)}
+                title="단계 이름 (클릭해서 수정)"
+                className="w-48 rounded border border-transparent bg-transparent px-1 text-sm font-semibold hover:border-input focus:border-input focus:outline-none"
+              />
+            ) : (
+              <h3 className="text-sm font-semibold">{title}</h3>
+            )}
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${badge.cls}`}>
               {badge.label}
             </span>
@@ -76,17 +94,22 @@ export function StepCard({
             </div>
           )}
         </div>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove();
-          }}
-          className="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-[#fee2e2] hover:text-[#991b1b]"
-          title="모듈 삭제"
-        >
-          삭제
-        </button>
+        <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+          <button type="button" onClick={() => onMove("up")} disabled={!canMoveUp} className={moveBtn} title="위로 이동">
+            ▲
+          </button>
+          <button type="button" onClick={() => onMove("down")} disabled={!canMoveDown} className={moveBtn} title="아래로 이동">
+            ▼
+          </button>
+          <button
+            type="button"
+            onClick={onRemove}
+            className="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-[#fee2e2] hover:text-[#991b1b]"
+            title="모듈 삭제"
+          >
+            삭제
+          </button>
+        </div>
         <span className="text-muted-foreground">{expanded ? "▾" : "▸"}</span>
       </header>
 
@@ -101,6 +124,11 @@ export function StepCard({
               }`}
             >
               {result.message}
+            </p>
+          )}
+          {result.warning && (
+            <p className="mb-3 rounded-md bg-[#fef3c7] px-3 py-2 text-sm text-[#92400e]">
+              {result.warning}
             </p>
           )}
           {children}

@@ -18,9 +18,9 @@ function Stat({ label, value, strong }: { label: string; value: string; strong?:
 
 export function M08NetPremium({ mod, result, upstream, contract, update }: ModuleFormProps) {
   const p = mod.params as unknown as M08Params;
-  const pvinAssets = upstream.filter((a) => a.def.kind === "scalar" && /^pvin\d+$/.test(a.def.code));
-  const pvoutAssets = upstream.filter((a) => a.def.kind === "scalar" && /^pvout\d+$/.test(a.def.code));
-  const lAssets = upstream.filter((a) => /^l\d+$/.test(a.def.code));
+  const pvinAssets = upstream.filter((a) => a.tag === "pv_in");
+  const pvoutAssets = upstream.filter((a) => a.tag === "pv_out");
+  const lAssets = upstream.filter((a) => a.tag === "survivors");
 
   const pAnnual = result.assets.find((a) => a.def.code === "p_annual")?.value as number | undefined;
   const nsp = result.assets.find((a) => a.def.code === "nsp")?.value as number | undefined;

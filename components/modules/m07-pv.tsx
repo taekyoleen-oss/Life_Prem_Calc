@@ -9,12 +9,11 @@ import type { ModuleFormProps } from "./types";
 
 export function M07Pv({ mod, result, upstream, contract, update }: ModuleFormProps) {
   const p = mod.params as unknown as M07Params;
-  const series = upstream.filter((a) => a.def.kind === "series");
-  const vAssets = series.filter((a) => /^v\d+$/.test(a.def.code));
+  const vAssets = upstream.filter((a) => a.tag === "discount");
   const targetAssets =
     p.kind === "death"
-      ? series.filter((a) => /^d\d+$/.test(a.def.code))
-      : series.filter((a) => /^(l|lp)\d+$/.test(a.def.code));
+      ? upstream.filter((a) => a.tag === "deaths")
+      : upstream.filter((a) => a.tag === "survivors" || a.tag === "payers");
 
   const terms = result.assets.find((a) => a.def.kind === "series")?.value as number[] | undefined;
   const total = result.assets.find((a) => a.def.kind === "scalar")?.value as number | undefined;

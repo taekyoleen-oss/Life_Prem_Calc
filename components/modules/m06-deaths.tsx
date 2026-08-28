@@ -9,8 +9,8 @@ import type { ModuleFormProps } from "./types";
 
 export function M06Deaths({ mod, result, upstream, contract, update }: ModuleFormProps) {
   const p = mod.params as unknown as M06Params;
-  const seriesAssets = upstream.filter((a) => a.def.kind === "series" && /^(l|lp)\d+$/.test(a.def.code));
-  const tables = upstream.filter((a) => a.def.kind === "table");
+  const seriesAssets = upstream.filter((a) => a.tag === "survivors" || a.tag === "payers");
+  const tables = upstream.filter((a) => a.tag === "rate");
   const d = result.assets[0]?.value as number[] | undefined;
 
   const lAsset = upstream.find((a) => a.def.id === p.lAssetId);

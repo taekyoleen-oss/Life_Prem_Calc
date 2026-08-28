@@ -8,7 +8,7 @@ import type { ModuleFormProps } from "./types";
 
 export function M05Survivors({ mod, result, upstream, contract, update }: ModuleFormProps) {
   const p = mod.params as unknown as M05Params;
-  const tables = upstream.filter((a) => a.def.kind === "table");
+  const tables = upstream.filter((a) => a.tag === "rate");
   const l = result.assets[0]?.value as number[] | undefined;
 
   return (
@@ -35,7 +35,14 @@ export function M05Survivors({ mod, result, upstream, contract, update }: Module
             ]}
           />
         </Field>
-        <Field label="용도">
+        <Field
+          label="용도"
+          hint={
+            p.usage === "payers"
+              ? "납입면제 반영 예: 사망률 + 면제사유율(진단률 등)을 함께 선택해 별도 lp 계열 산출"
+              : "납입면제를 반영한 납입자수는 이 단계를 하나 더 추가해 용도를 '납입자수'로 지정"
+          }
+        >
           <SelectInput
             value={p.usage}
             onChange={(v) => update({ usage: v })}

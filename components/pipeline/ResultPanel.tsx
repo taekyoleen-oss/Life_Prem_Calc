@@ -17,7 +17,7 @@ export function ResultPanel({
   const doneCount = Object.values(results).filter((r) => r.status === "done").length;
 
   return (
-    <aside className="sticky top-6 flex flex-col gap-4">
+    <aside className="flex flex-col gap-4">
       <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
         <h2 className="mb-3 text-sm font-bold">결과 요약</h2>
 
