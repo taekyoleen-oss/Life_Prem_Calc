@@ -48,7 +48,9 @@ export function SubStep({
             </button>
           )}
         </span>
-        <span className="text-xs text-muted-foreground">{collapsed ? "▸" : "▾"}</span>
+        <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground">
+          {collapsed ? "▸ 펼치기" : "▾ 접기"}
+        </span>
       </div>
       {!collapsed && <div className="border-t border-border/60 px-3 py-3">{children}</div>}
     </div>

@@ -127,7 +127,9 @@ export function StepCard({
             삭제
           </button>
         </div>
-        <span className="text-muted-foreground">{expanded ? "▾" : "▸"}</span>
+        <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground">
+          {expanded ? "▾ 접기" : "▸ 펼치기"}
+        </span>
       </header>
 
       {helpVisible && (
