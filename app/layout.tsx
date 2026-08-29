@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { JetBrains_Mono } from "next/font/google";
 import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
 import "./globals.css";
+import { AuthSession } from "@/components/AuthSession";
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
@@ -20,7 +21,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko" className={jetbrainsMono.variable}>
-      <body>{children}</body>
+      <body>
+        <AuthSession />
+        {children}
+      </body>
     </html>
   );
 }

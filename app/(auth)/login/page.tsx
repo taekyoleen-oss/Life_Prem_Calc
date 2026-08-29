@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { cloudEnabled, supabase } from "@/lib/supabase/client";
 
@@ -12,6 +12,13 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [message, setMessage] = useState("");
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  // AuthSession이 매직링크 실패(만료·재사용)를 ?error= 로 넘겨준다.
+  useEffect(() => {
+    const err = new URLSearchParams(window.location.search).get("error");
+    if (err) setLinkError(err);
+  }, []);
 
   const sendLink = async () => {
     if (!supabase || !email.trim()) return;
@@ -38,6 +45,13 @@ export default function LoginPage() {
             : "클라우드 저장(Supabase) 연동 준비 중입니다 — 지금은 게스트 모드를 이용하세요."}
         </p>
       </div>
+
+      {linkError && (
+        <p className="max-w-sm rounded-md bg-[#fee2e2] px-3 py-2 text-sm text-[#991b1b]">
+          로그인 링크가 만료되었거나 이미 사용되었습니다 — 아래에서 새 링크를 받아,
+          <strong> 가장 최근에 도착한 메일</strong>의 링크를 열어 주세요. ({linkError})
+        </p>
+      )}
 
       {cloudEnabled && state !== "sent" && (
         <form
@@ -78,8 +92,9 @@ export default function LoginPage() {
 
       {state === "sent" && (
         <p className="max-w-sm rounded-lg bg-accent px-4 py-3 text-sm text-accent-foreground">
-          <strong>{email}</strong> 로 로그인 링크를 보냈습니다. 메일함에서 링크를 열면
-          로그인됩니다. (스팸함도 확인해 주세요)
+          <strong>{email}</strong> 로 로그인 링크를 보냈습니다. 링크는 1회용이며 새 링크를
+          받으면 이전 링크는 무효가 됩니다 — <strong>가장 최근 메일</strong>의 링크를, 지금 이
+          브라우저에서 열어 주세요. (스팸함도 확인)
         </p>
       )}
 
