@@ -5,11 +5,12 @@
 
 **배포 URL**: https://premiaflow.vercel.app (게스트 즉시 사용, 이메일·비밀번호 회원가입/로그인)
 
-현재 진행 상태: **P5 로컬 파트 완료** — 계산 엔진·골든 테스트(P1), 파이프라인 UI(P2),
-공용탭·다중 탭·M09(P3), M10 수식·Python/VBA 코드 생성·대사·강의 모드(P4)에 이어,
+현재 진행 상태: **P5 완료 (v1.0 승인 대기)** — 계산 엔진·골든 테스트(P1), 파이프라인
+UI(P2), 공용탭·다중 탭·M09(P3), M10 수식·Python/VBA 코드 생성·대사·강의 모드(P4),
 브라우저 자동 저장(localStorage)·M11 통합 계산표·CSV/XLSX 내보내기·라이브러리
-페이지·키보드 이동(Alt+↑↓)까지 구현. 남은 것: Supabase 연동(로그인·클라우드 저장)과
-Vercel 배포 — 계정 연결 필요.
+페이지·키보드 이동(Alt+↑↓)에 이어, Supabase 연동(이메일+비밀번호 인증·RLS·클라우드
+자동 저장 2초·게스트 가져오기)과 Vercel 배포까지 완료. 남은 것: 사용자 승인 후
+Lighthouse 마감.
 
 ```bash
 python -m pytest tests/codegen/test_parity.py   # 생성 Python 대사 (실행값 = 엔진값)
