@@ -88,12 +88,40 @@ export interface SheetComputation {
   final: { nsp: number | null; p: number | null; pRounded: number | null; g: number | null; gRounded: number | null };
 }
 
-/** 공용 라이브러리 (P2: 더미 표만, 설계서 §10-2) */
+/**
+ * 공용 라이브러리 (더미 위험률 표 v2, 설계서 §10-2).
+ * 성별 구분은 두지 않는다 — 성별은 계약조건(M02)에서만 다루므로 담보별 표 5종으로 제공한다.
+ * 일반사망률·암발생률은 v1의 사망률(남)·진단률 값을 그대로 승계한다(골든 기대값 불변).
+ */
 export const RATE_LIBRARY = {
-  male: { label: "더미 사망률(남)", isMortality: true, values: rates.male },
-  female: { label: "더미 사망률(여)", isMortality: true, values: rates.female },
-  diagnosis: { label: "더미 진단률", isMortality: false, values: rates.diagnosis },
+  mortality: { label: "더미 일반사망률", assetName: "q_일반사망", isMortality: true, values: rates.mortality },
+  accident: { label: "더미 재해사망률", assetName: "q_재해사망", isMortality: true, values: rates.accident },
+  disability: { label: "더미 50% 이상 장애율", assetName: "q_장애50", isMortality: false, values: rates.disability },
+  cancer: { label: "더미 암발생률", assetName: "q_암발생", isMortality: false, values: rates.cancer },
+  cancer_surgery: { label: "더미 암수술률", assetName: "q_암수술", isMortality: false, values: rates.cancer_surgery },
 } as const;
+
+export type RateLibraryKey = keyof typeof RATE_LIBRARY;
+
+/**
+ * 구버전(성별 구분) 키 호환 — 저장된 파이프라인의 자산 참조(`…:q_male` 등)를 깨뜨리지 않는다.
+ * 여성 표는 폐지했으므로 일반사망률로 수렴하며, 이 경우 계산값이 달라진다.
+ */
+const LEGACY_RATE_KEY: Record<string, RateLibraryKey> = {
+  male: "mortality",
+  female: "mortality",
+  diagnosis: "cancer",
+};
+
+/** 구버전 키를 현재 담보 키로 정규화한다(알 수 없는 키는 그대로 반환). */
+export function normalizeRateKey(key: string): string {
+  return key in RATE_LIBRARY ? key : (LEGACY_RATE_KEY[key] ?? key);
+}
+
+/** 라이브러리 키 해석: 신규 키 우선, 없으면 구버전 키를 매핑한다. */
+export function resolveRateLibrary(key: string) {
+  return RATE_LIBRARY[normalizeRateKey(key) as RateLibraryKey];
+}
 
 /** 모듈 카탈로그 메타 (§3.2): 표시명·반복 가능 여부·사용 가능 여부 */
 export const MODULE_CATALOG: Record<
@@ -317,7 +345,7 @@ export function computeSheet(pipeline: ModuleInstance[], seed?: SheetSeed): Shee
           break;
         }
         case "M03": {
-          const p = mod.params as unknown as M03Params & { libraryKey?: keyof typeof RATE_LIBRARY };
+          const p = mod.params as unknown as M03Params & { libraryKey?: string };
           if ((p.source ?? "library") === "custom") {
             // 직접 입력(붙여넣기·CSV) — 파싱은 lib/engine/table-io.ts(결정론)
             if (!p.custom || p.custom.columns.length === 0) {
@@ -346,16 +374,16 @@ export function computeSheet(pipeline: ModuleInstance[], seed?: SheetSeed): Shee
             break;
           }
           // 공용 라이브러리 (구버전 단일 선택 호환)
-          const keys = p.libraryKeys ?? (p.libraryKey ? [p.libraryKey] : []);
+          const keys: string[] = p.libraryKeys ?? (p.libraryKey ? [p.libraryKey] : []);
           if (keys.length === 0) throw new IncompleteError("위험률을 1개 이상 선택하세요.");
-          const NAME = { male: "q_사망_남", female: "q_사망_여", diagnosis: "q_진단" } as const;
           for (const key of keys) {
-            const lib = RATE_LIBRARY[key];
+            const lib = resolveRateLibrary(key);
             if (!lib) throw new Error(`알 수 없는 라이브러리 항목입니다: ${key}`);
-            const table: RateTable = { startAge: 0, values: lib.values as number[], isMortality: lib.isMortality };
+            const table: RateTable = { startAge: 0, values: lib.values as unknown as number[], isMortality: lib.isMortality };
             assets.push(
               register(ctx, mod, warnings, {
-                slot: `q_${key}`, code: `q${nextIndex(ctx, "q")}`, displayName: NAME[key],
+                // 슬롯은 저장된 원래 키로 둔다 — 구버전 파이프라인의 `…:q_male` 참조 보존
+                slot: `q_${key}`, code: `q${nextIndex(ctx, "q")}`, displayName: lib.assetName,
                 kind: "table", value: table, tag: "rate", isMortality: lib.isMortality,
               }),
             );

@@ -21,10 +21,10 @@ const base = () => [
     age: 40, sex: "male", years: 20, payYears: 20,
     sumAssured: 100_000_000, roundDigit: 0, roundMode: "round",
   }),
-  mk("m3", "M03", { libraryKeys: ["male"] }),
+  mk("m3", "M03", { libraryKeys: ["mortality"] }),
   mk("m4", "M04", { i: 0.025 }),
-  mk("m5", "M05", { qAssetIds: ["m3:q_male"], l0: 100_000, combine: "single", usage: "survivors" }),
-  mk("m6", "M06", { lAssetId: "m5:l", qAssetId: "m3:q_male" }),
+  mk("m5", "M05", { qAssetIds: ["m3:q_mortality"], l0: 100_000, combine: "single", usage: "survivors" }),
+  mk("m6", "M06", { lAssetId: "m5:l", qAssetId: "m3:q_mortality" }),
   mk("m7", "M07", {
     kind: "income", timing: "begin", seriesAssetId: "m5:l", vAssetId: "m4:v",
     amountMode: "S", customAmount: 0,
@@ -61,7 +61,7 @@ describe("computeSheet: G1 정기보험 E2E", () => {
   });
 
   it("자동 코드 명명: q1·v1·l1·d1·pvin1·pvout1·p_annual", () => {
-    expect(c.byId["m3:q_male"].def.code).toBe("q1");
+    expect(c.byId["m3:q_mortality"].def.code).toBe("q1");
     expect(c.byId["m4:v"].def.code).toBe("v1");
     expect(c.byId["m5:l"].def.code).toBe("l1");
     expect(c.byId["m6:d"].def.code).toBe("d1");
@@ -108,7 +108,7 @@ describe("computeSheet: 실패 처리 (§3.9)", () => {
 
   it("깨진 참조 → 오류 상태 + 원인 메시지", () => {
     const pipeline = base().slice(0, 6);
-    pipeline[5] = mk("m6", "M06", { lAssetId: "없는자산", qAssetId: "m3:q_male" });
+    pipeline[5] = mk("m6", "M06", { lAssetId: "없는자산", qAssetId: "m3:q_mortality" });
     const c = computeSheet(pipeline);
     expect(c.results["m6"].status).toBe("error");
     expect(c.results["m6"].message).toContain("참조 자산");
@@ -159,14 +159,14 @@ describe("computeSheet: M04·M05 소단계 (한국형 유연성)", () => {
 
   it("M05 소단계: 생존자수 + 납입자수(다른 탈퇴 구성)가 한 단계에서 독립 산출", () => {
     const pipeline = base();
-    pipeline[2] = mk("m3", "M03", { libraryKeys: ["male", "diagnosis"] });
+    pipeline[2] = mk("m3", "M03", { libraryKeys: ["mortality", "cancer"] });
     pipeline[4] = mk("m5", "M05", {
       variants: [
-        { key: "l", usage: "survivors", qAssetIds: ["m3:q_male"], l0: 100_000, combine: "single" },
+        { key: "l", usage: "survivors", qAssetIds: ["m3:q_mortality"], l0: 100_000, combine: "single" },
         {
           key: "lp",
           usage: "payers",
-          qAssetIds: ["m3:q_male", "m3:q_diagnosis"],
+          qAssetIds: ["m3:q_mortality", "m3:q_cancer"],
           l0: 100_000,
           combine: "independent",
         },
@@ -219,24 +219,26 @@ describe("computeSheet: 출력 변수 이름 지정 (§3.3)", () => {
   it("자동 명명은 사용자 지정 코드가 선점한 번호를 건너뛴다", () => {
     const pipeline = base();
     // m3의 q를 'q1'으로… 대신 두 번째 M03가 자동으로 q1을 피하는지: m3에 q2를 강제 지정
-    pipeline[2].params = { ...pipeline[2].params, assetNames: { q_male: { code: "q2" } } };
-    // 구버전 단일 libraryKey 파라미터 호환도 함께 검증
+    pipeline[2].params = { ...pipeline[2].params, assetNames: { q_mortality: { code: "q2" } } };
+    // 구버전 저장 파일 호환도 함께 검증: 단일 libraryKey 파라미터 + 성별 키(female → 일반사망률)
     pipeline.splice(3, 0, mk("m3b", "M03", { libraryKey: "female" }));
     const c = computeSheet(pipeline);
-    expect(c.byId["m3:q_male"].def.code).toBe("q2");
+    expect(c.byId["m3:q_mortality"].def.code).toBe("q2");
     expect(c.byId["m3b:q_female"].def.code).toBe("q1");
+    // 구버전 성별 키는 일반사망률로 매핑되고, 슬롯(q_female)은 유지되어 하류 참조가 살아 있다
+    expect(c.byId["m3b:q_female"].def.displayName).toBe("q_일반사망");
     for (const r of Object.values(c.results)) expect(r.status).toBe("done");
   });
 
   it("M03 다중 선택: 한 단계에서 q 계열 여러 개 등록", () => {
     const pipeline = base();
-    pipeline[2] = mk("m3", "M03", { libraryKeys: ["male", "diagnosis"] });
+    pipeline[2] = mk("m3", "M03", { libraryKeys: ["mortality", "cancer"] });
     const c = computeSheet(pipeline);
-    expect(c.byId["m3:q_male"].def.code).toBe("q1");
-    expect(c.byId["m3:q_diagnosis"].def.code).toBe("q2");
-    expect(c.byId["m3:q_male"].def.isMortality).toBe(true);
-    expect(c.byId["m3:q_diagnosis"].def.isMortality).toBe(false);
-    expect(c.final.p).toBe(expected.G1.P); // 하류는 q_male만 참조 — 결과 불변
+    expect(c.byId["m3:q_mortality"].def.code).toBe("q1");
+    expect(c.byId["m3:q_cancer"].def.code).toBe("q2");
+    expect(c.byId["m3:q_mortality"].def.isMortality).toBe(true);
+    expect(c.byId["m3:q_cancer"].def.isMortality).toBe(false);
+    expect(c.final.p).toBe(expected.G1.P); // 하류는 q_mortality만 참조 — 결과 불변
   });
 });
 

@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 import type { M03CustomColumn, M03Params } from "@/types/modules";
-import { RATE_LIBRARY, type RateTable } from "@/lib/engine/pipeline";
+import { RATE_LIBRARY, normalizeRateKey, type RateTable } from "@/lib/engine/pipeline";
 import { parseRateTable } from "@/lib/engine/table-io";
 import { DataGrid, type GridColumn } from "@/components/grid/DataGrid";
 import { Field, SelectInput } from "./fields";
 import type { ModuleFormProps } from "./types";
 
-const KEYS = ["male", "female", "diagnosis"] as const;
+const KEYS = ["mortality", "accident", "disability", "cancer", "cancer_surgery"] as const;
 
 export function M03Rates({ mod, result, contract, update }: ModuleFormProps) {
   const p = mod.params as unknown as M03Params & { libraryKey?: (typeof KEYS)[number] };
@@ -17,9 +17,14 @@ export function M03Rates({ mod, result, contract, update }: ModuleFormProps) {
   const [parseError, setParseError] = useState<string | null>(null);
   const [parseWarnings, setParseWarnings] = useState<string[]>([]);
 
+  // 구버전(성별 구분) 키로 저장된 선택도 같은 담보로 보이게 정규화한다.
+  const checkedFor = (key: string) => selected.some((s) => normalizeRateKey(s) === key);
   const toggleLib = (key: (typeof KEYS)[number], on: boolean) =>
     update({
-      libraryKeys: KEYS.filter((k) => (k === key ? on : selected.includes(k))),
+      // 이미 저장된 키는 그대로 유지 — 자산 슬롯(…:q_male)이 바뀌어 하류 참조가 끊기지 않도록.
+      libraryKeys: KEYS.filter((k) => (k === key ? on : checkedFor(k))).map(
+        (k) => selected.find((s) => normalizeRateKey(s) === k) ?? k,
+      ),
       libraryKey: undefined,
     });
 
@@ -81,8 +86,8 @@ export function M03Rates({ mod, result, contract, update }: ModuleFormProps) {
 
       {source === "library" ? (
         <Field
-          label="사용할 열 선택 (다중)"
-          hint="표의 열 중 필요한 계열만 골라 변수로 등록합니다. 성별은 계약조건에 따라 자동 제안됩니다."
+          label="사용할 담보 선택 (다중)"
+          hint="필요한 담보의 q 계열만 골라 변수로 등록합니다. 성별 구분은 없습니다 — 성별은 계약조건(M02)에서 지정합니다."
         >
           <div className="flex flex-col gap-1.5 pt-1">
             {KEYS.map((key) => {
@@ -91,7 +96,7 @@ export function M03Rates({ mod, result, contract, update }: ModuleFormProps) {
                 <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={selected.includes(key)}
+                    checked={checkedFor(key)}
                     onChange={(e) => toggleLib(key, e.target.checked)}
                     className="h-4 w-4 accent-[var(--primary)]"
                   />

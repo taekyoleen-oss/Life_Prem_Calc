@@ -37,10 +37,10 @@ describe("parseRateTable", () => {
 describe("M03 직접 입력 → 파이프라인", () => {
   it("붙여넣은 표의 선택 열로 골든 G1 재현 (완전 일치)", async () => {
     const seed = (await import("@/lib/engine/seed/dummy-rates.json")).default;
-    // 더미 사망률(남) 40~59 구간 + 무관한 열 하나를 붙여넣었다고 가정
+    // 더미 일반사망률 40~59 구간 + 무관한 열 하나를 붙여넣었다고 가정
     const text = [
       "연령\t사망률\t해지율",
-      ...Array.from({ length: 20 }, (_, t) => `${40 + t}\t${seed.male[40 + t]}\t0.01`),
+      ...Array.from({ length: 20 }, (_, t) => `${40 + t}\t${seed.mortality[40 + t]}\t0.01`),
     ].join("\n");
     const parsed = parseRateTable(text);
     const custom = {
@@ -79,10 +79,10 @@ describe("M10 사용자 수식 → 파이프라인", () => {
       age: 40, sex: "male", years: 20, payYears: 20,
       sumAssured: 100_000_000, roundDigit: 0, roundMode: "round",
     }),
-    mk("m3", "M03", { libraryKeys: ["male"] }),
+    mk("m3", "M03", { libraryKeys: ["mortality"] }),
     mk("m4", "M04", { i: 0.025, variants: [{ key: "v", timing: "begin" }] }),
     mk("m5", "M05", {
-      variants: [{ key: "l", usage: "survivors", qAssetIds: ["m3:q_male"], l0: 100_000, combine: "single" }],
+      variants: [{ key: "l", usage: "survivors", qAssetIds: ["m3:q_mortality"], l0: 100_000, combine: "single" }],
     }),
   ];
 
@@ -105,7 +105,7 @@ describe("M10 사용자 수식 → 파이프라인", () => {
   it("표 자산은 계약 구간 슬라이스로 노출된다 (q1[0] = q_40)", () => {
     const pipeline = [...base(), mk("f1", "M10", { expression: "SUM(q1)" })];
     const c = computeSheet(pipeline);
-    const seedSum = (c.byId["m3:q_male"].value as { values: number[] }).values
+    const seedSum = (c.byId["m3:q_mortality"].value as { values: number[] }).values
       .slice(40, 60)
       .reduce((a, b) => a + b, 0);
     expect(c.byId["f1:f"].value).toBeCloseTo(seedSum, 12);

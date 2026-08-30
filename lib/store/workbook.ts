@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { M02Params, ModuleInstance, ModuleTypeId } from "@/types/modules";
+import type { ModuleInstance, ModuleTypeId } from "@/types/modules";
 import {
   computeSheet,
   repairRefs,
@@ -39,11 +39,7 @@ const latestByTag = (assets: ComputedAsset[], ...tags: AssetTag[]): string | nul
 };
 
 /** 새 모듈의 기본 파라미터 — 삽입 위치의 상류(공용탭 포함) 자산을 자동 연결 (§3.1) */
-function defaultParams(
-  type: ModuleTypeId,
-  assets: ComputedAsset[],
-  contract: M02Params | null,
-): Record<string, unknown> {
+function defaultParams(type: ModuleTypeId, assets: ComputedAsset[]): Record<string, unknown> {
   switch (type) {
     case "M01":
       return { productName: "", productType: "term", memo: "" };
@@ -53,8 +49,8 @@ function defaultParams(
         sumAssured: 100_000_000, roundDigit: 0, roundMode: "round",
       };
     case "M03":
-      // 성별 자동 적용 (§3.2 M03)
-      return { libraryKeys: [contract?.sex === "female" ? "female" : "male"] };
+      // 담보별 표 — 성별 구분 없음(성별은 M02 계약조건에서만 다룬다, §3.2 M03)
+      return { libraryKeys: ["mortality"] };
     case "M04":
       // 기본 소단계 2개: 연시 v^t + 연중 v^{t+1/2}
       return {
@@ -138,7 +134,7 @@ const mk = (id: string, type: ModuleTypeId, params: Record<string, unknown>): Mo
 export function buildStandardPipeline(kind: ProductPreset): ModuleInstance[] {
   const m1 = uid(), m2 = uid(), m3 = uid(), m4 = uid(), m5 = uid();
   const m6 = uid(), m7in = uid(), m7d = uid(), m7m = uid(), m8 = uid();
-  const q = `${m3}:q_male`, v = `${m4}:v`, l = `${m5}:l`, d = `${m6}:d`;
+  const q = `${m3}:q_mortality`, v = `${m4}:v`, l = `${m5}:l`, d = `${m6}:d`;
   const productName = { term: "정기보험", endowment: "생사혼합보험", pure: "순수생존보험" }[kind];
   const hasDeath = kind !== "pure";
   const hasMaturity = kind !== "term";
@@ -149,7 +145,7 @@ export function buildStandardPipeline(kind: ProductPreset): ModuleInstance[] {
       age: 40, sex: "male", years: 20, payYears: 20,
       sumAssured: 100_000_000, roundDigit: 0, roundMode: "round",
     }),
-    mk(m3, "M03", { libraryKeys: ["male"] }),
+    mk(m3, "M03", { libraryKeys: ["mortality"] }),
     mk(m4, "M04", {
       i: 0.025,
       variants: [
@@ -325,7 +321,7 @@ export const useWorkbook = create<WorkbookStore>((set, get) => {
       const mod: ModuleInstance = {
         id: uid(),
         type,
-        params: defaultParams(type, comp.assets, comp.contract),
+        params: defaultParams(type, comp.assets),
         refs: [],
         outputs: [],
       };

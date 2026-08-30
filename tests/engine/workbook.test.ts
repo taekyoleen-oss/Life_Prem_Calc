@@ -1,7 +1,7 @@
 /**
  * 공용탭 + 특약 탭 워크북 계산 (설계서 §2.3, 골든 G5).
  * 공용탭(계약조건·사망률·이자율)을 주계약·특약 탭이 함께 참조하고,
- * 특약은 사망률 × 진단률 독립 곱으로 l_특약을 산출한다.
+ * 특약은 일반사망률 × 암발생률 독립 곱으로 l_특약을 산출한다.
  * 기대값은 독립 Python 이중 산출(reference.py)로 고정 — float64 완전 일치.
  */
 import { describe, expect, it } from "vitest";
@@ -22,7 +22,7 @@ const buildSheets = (i = 0.025) => [
         age: 40, sex: "male", years: 20, payYears: 20,
         sumAssured: 100_000_000, roundDigit: 0, roundMode: "round",
       }),
-      mk("c2", "M03", { libraryKeys: ["male"] }),
+      mk("c2", "M03", { libraryKeys: ["mortality"] }),
       mk("c3", "M04", { i, variants: [{ key: "v", timing: "begin" }] }),
     ],
   },
@@ -31,9 +31,9 @@ const buildSheets = (i = 0.025) => [
     sheetType: "normal" as const,
     pipeline: [
       mk("a1", "M05", {
-        variants: [{ key: "l", usage: "survivors", qAssetIds: ["c2:q_male"], l0: 100_000, combine: "single" }],
+        variants: [{ key: "l", usage: "survivors", qAssetIds: ["c2:q_mortality"], l0: 100_000, combine: "single" }],
       }),
-      mk("a2", "M06", { lAssetId: "a1:l", qAssetId: "c2:q_male" }),
+      mk("a2", "M06", { lAssetId: "a1:l", qAssetId: "c2:q_mortality" }),
       mk("a3", "M07", { kind: "income", timing: "begin", seriesAssetId: "a1:l", vAssetId: "c3:v", amountMode: "S", customAmount: 0 }),
       mk("a4", "M07", { kind: "death", timing: "end", seriesAssetId: "a2:d", vAssetId: "c3:v", amountMode: "S", customAmount: 0 }),
       mk("a5", "M08", { incomeAssetIds: ["a3:total"], outgoAssetIds: ["a4:total"], lAssetId: "a1:l" }),
@@ -43,15 +43,15 @@ const buildSheets = (i = 0.025) => [
     id: "rider",
     sheetType: "normal" as const,
     pipeline: [
-      mk("b1", "M03", { libraryKeys: ["diagnosis"] }),
+      mk("b1", "M03", { libraryKeys: ["cancer"] }),
       mk("b2", "M05", {
         variants: [{
           key: "l", usage: "survivors",
-          qAssetIds: ["c2:q_male", "b1:q_diagnosis"], // 사망 × 진단 독립 곱 (순서 = 정준 순서)
+          qAssetIds: ["c2:q_mortality", "b1:q_cancer"], // 사망 × 암발생 독립 곱 (순서 = 정준 순서)
           l0: 100_000, combine: "independent",
         }],
       }),
-      mk("b3", "M06", { lAssetId: "b2:l", qAssetId: "b1:q_diagnosis" }),
+      mk("b3", "M06", { lAssetId: "b2:l", qAssetId: "b1:q_cancer" }),
       mk("b4", "M07", { kind: "income", timing: "begin", seriesAssetId: "b2:l", vAssetId: "c3:v", amountMode: "S", customAmount: 0 }),
       mk("b5", "M07", { kind: "death", timing: "end", seriesAssetId: "b3:d", vAssetId: "c3:v", amountMode: "custom", customAmount: 10_000_000 }),
       mk("b6", "M08", { incomeAssetIds: ["b4:total"], outgoAssetIds: ["b5:total"], lAssetId: "b2:l" }),
@@ -81,8 +81,8 @@ describe("G5: 공용탭 + 진단특약 탭", () => {
   });
 
   it("코드 유일성: 일반 탭 자동 명명이 공용탭 코드를 피한다 (§3.3)", () => {
-    // 공용탭 q1·v1 → 특약 탭 진단률은 q2
-    expect(comps["rider"].byId["b1:q_diagnosis"].def.code).toBe("q2");
+    // 공용탭 q1·v1 → 특약 탭 암발생률은 q2
+    expect(comps["rider"].byId["b1:q_cancer"].def.code).toBe("q2");
     // 탭 간(주계약 vs 특약)은 서로 독립 범위 — 둘 다 l1 사용 가능
     expect(comps["main"].byId["a1:l"].def.code).toBe("l1");
     expect(comps["rider"].byId["b2:l"].def.code).toBe("l1");

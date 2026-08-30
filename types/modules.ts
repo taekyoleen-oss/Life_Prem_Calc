@@ -71,7 +71,14 @@ export interface M03CustomColumn {
 export interface M03Params {
   /** 생략 시 "library" (구버전 호환) */
   source?: "library" | "custom";
-  libraryKeys: ("male" | "female" | "diagnosis")[];
+  /**
+   * 공용 라이브러리 담보 키. 성별 구분은 두지 않는다(성별은 M02).
+   * "male" | "female" | "diagnosis"는 구버전 저장 파일 호환 키다.
+   */
+  libraryKeys: (
+    | "mortality" | "accident" | "disability" | "cancer" | "cancer_surgery"
+    | "male" | "female" | "diagnosis"
+  )[];
   /** 직접 입력 파싱 결과 (결정론 파서 lib/engine/table-io.ts) */
   custom?: { startAge: number; columns: M03CustomColumn[] };
   /** 재편집용 원본 텍스트 */

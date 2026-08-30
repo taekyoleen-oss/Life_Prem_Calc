@@ -95,16 +95,16 @@ describe("생성 Python 실행값 = 엔진값 (완전 일치)", () => {
       id: "sh", name: "공용", sheetType: "shared" as const,
       pipeline: [
         mk("c1", "M02", { age: 40, sex: "male", years: 20, payYears: 20, sumAssured: 100_000_000, roundDigit: 0, roundMode: "round" }),
-        mk("c2", "M03", { libraryKeys: ["male"] }),
+        mk("c2", "M03", { libraryKeys: ["mortality"] }),
         mk("c3", "M04", { i: 0.025, variants: [{ key: "v", timing: "begin" }] }),
       ],
     };
     const rider = {
       id: "rider", name: "진단특약", sheetType: "normal" as const,
       pipeline: [
-        mk("b1", "M03", { libraryKeys: ["diagnosis"] }),
-        mk("b2", "M05", { variants: [{ key: "l", usage: "survivors", qAssetIds: ["c2:q_male", "b1:q_diagnosis"], l0: 100_000, combine: "independent" }] }),
-        mk("b3", "M06", { lAssetId: "b2:l", qAssetId: "b1:q_diagnosis" }),
+        mk("b1", "M03", { libraryKeys: ["cancer"] }),
+        mk("b2", "M05", { variants: [{ key: "l", usage: "survivors", qAssetIds: ["c2:q_mortality", "b1:q_cancer"], l0: 100_000, combine: "independent" }] }),
+        mk("b3", "M06", { lAssetId: "b2:l", qAssetId: "b1:q_cancer" }),
         mk("b4", "M07", { kind: "income", timing: "begin", seriesAssetId: "b2:l", vAssetId: "c3:v", amountMode: "S", customAmount: 0 }),
         mk("b5", "M07", { kind: "death", timing: "end", seriesAssetId: "b3:d", vAssetId: "c3:v", amountMode: "custom", customAmount: 10_000_000 }),
         mk("b6", "M08", { incomeAssetIds: ["b4:total"], outgoAssetIds: ["b5:total"], lAssetId: "b2:l" }),

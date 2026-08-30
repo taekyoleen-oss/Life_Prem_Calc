@@ -20,14 +20,17 @@ export default function LibraryPage() {
       </header>
 
       <section className="mb-4 rounded-xl border border-border bg-card p-4 text-sm">
-        <h2 className="mb-1 font-bold">더미 위험률 표 v1 (강의·실습용)</h2>
+        <h2 className="mb-1 font-bold">더미 위험률 표 v2 (강의·실습용)</h2>
         <p className="text-muted-foreground">
-          연령 0~100세 합성 표입니다. 생성 규칙(연령 단조 증가):
+          연령 0~100세 합성 표입니다. 성별 구분은 두지 않습니다(성별은 계약조건에서 지정).
+          생성 규칙(연령 단조 증가):
         </p>
         <ul className="mt-2 flex flex-col gap-0.5 font-mono text-xs text-muted-foreground">
-          <li>사망률(남) = round6(0.0005 + 0.00005 × 1.09^x)</li>
-          <li>사망률(여) = round6(0.0003 + 0.000035 × 1.09^x)</li>
-          <li>진단률 = round6(0.0002 + 0.00002 × 1.08^x)</li>
+          <li>일반사망률 = round6(0.0005 + 0.00005 × 1.09^x)</li>
+          <li>재해사망률 = round6(0.00025 + 0.000002 × 1.06^x)</li>
+          <li>50% 이상 장애율 = round6(0.00008 + 0.000008 × 1.09^x)</li>
+          <li>암발생률 = round6(0.0002 + 0.00002 × 1.08^x)</li>
+          <li>암수술률 = round6(0.00015 + 0.000015 × 1.08^x)</li>
         </ul>
         <p className="mt-2 text-xs text-muted-foreground">
           실제 경험생명표는 작업공간의 위험률 단계에서 붙여넣기·CSV로 직접 입력할 수 있습니다.

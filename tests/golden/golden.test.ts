@@ -13,7 +13,7 @@ import { annualNetPremium, grossPremiumA, netSinglePremium } from "@/lib/engine/
 
 const { x, n, m, S, i, l0, alpha, beta, gamma } = expected.meta.inputs;
 
-const q = rates.male.slice(x, x + n);
+const q = rates.mortality.slice(x, x + n);
 const vp = discountFactors(i, n + 1);
 const l = survivors(l0, [q], "single");
 const d = deaths(l, q);
