@@ -20,6 +20,8 @@ Supabase 프로젝트: `premiaflow` (ref `vldzgbvvpuvyyoekskuh`, Seoul).
 
 ## 인증
 
-- 이메일 매직링크(v1.0). `site_url = https://premiaflow.vercel.app`,
+- 이메일·비밀번호(v1.0). 메일 확인 없이 가입 즉시 세션 발급(`mailer_autoconfirm=true`,
+  `supabase/config.toml`의 `enable_confirmations = false`). 비밀번호 재설정 메일만 발송한다.
+  `site_url = https://premiaflow.vercel.app`,
   redirect 허용: 배포 URL·localhost — `supabase/config.toml` → `supabase config push`.
 - Google OAuth는 로그인 화면에 자리만(비활성) — 콘솔 설정 후 활성화(v1.x).
